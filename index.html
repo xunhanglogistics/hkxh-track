@@ -3,87 +3,517 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>深圳市海凯讯航国际货运代理有限公司 | 国际物流</title>
+    <title>海凯讯航国际物流 | 专业跨境物流解决方案</title>
+    <meta name="description" content="深圳市海凯讯航国际货运代理有限公司，专业跨境物流、国际快递、FBA头程、全球专线，安全快捷高效。">
+    <meta name="keywords" content="海凯讯航,国际物流,跨境电商物流,FBA头程,国际快递">
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family: "Microsoft YaHei",sans-serif;}
-        body{background:#f7f9fc;color:#333;}
-        .top{background:#0a498c;color:white;padding:10px 20px;text-align:center;font-size:14px;}
-        .header{background:#0d539e;color:white;padding:30px 20px;text-align:center;}
-        .logo{font-size:28px;font-weight:bold;margin-bottom:8px;}
-        .company{font-size:15px;line-height:1.6;opacity:0.95;}
-        .nav{background:#083b72;color:white;text-align:center;padding:14px;}
-        .nav a{color:white;margin:0 12px;font-size:15px;display:inline-block;text-decoration:none;transition: all 0.3s ease;}
-        .nav a:hover{color:#a0cfff;}
-        .banner{background: linear-gradient(135deg,#0d539e,#0a498c);color:white;padding:50px 20px;text-align:center;}
-        .banner h1{font-size:24px;margin-bottom:15px;}
-        .banner p{font-size:16px;max-width:700px;margin:0 auto;line-height:1.7;opacity:0.9;}
-        .container{max-width:1000px;margin:0 auto;padding:30px 20px;}
-        .card{background:white;border-radius:12px;padding:30px;margin-bottom:25px;box-shadow:0 2px 12px rgba(0,0,0,0.05);}
-        .card h2{font-size:20px;color:#0d539e;margin-bottom:18px;border-left:4px solid #0d539e;padding-left:10px;}
-        .card p{line-height:1.8;font-size:15px;color:#444;margin-bottom:10px;}
-        .track-box{border:1px solid #eaeaea;border-radius:10px;padding:25px;background:#fbfcff;}
-        .track-title{font-size:16px;font-weight:bold;margin-bottom:12px;color:#333;}
-        .track-no{background:#eaf3ff;color:#0d539e;padding:12px;border-radius:8px;text-align:center;font-size:17px;font-weight:bold;margin:10px 0;}
-        .footer{background:#1f2937;color:white;text-align:center;padding:35px 20px;font-size:14px;line-height:1.8;}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft Yahei", -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+        }
+        :root {
+            --primary: #165DFF;
+            --primary-dark: #0040C9;
+            --light: #f5f7fa;
+            --gray: #e5e7eb;
+            --text: #333;
+            --text-light: #666;
+        }
+        body {
+            background: var(--light);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        .section {
+            padding: 60px 0;
+        }
+        .section-title {
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--primary);
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .section-subtitle {
+            font-size: 16px;
+            color: var(--text-light);
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 40px;
+        }
+        /* 导航 */
+        header {
+            background: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 0;
+            z-index: 999;
+        }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+        }
+        .logo {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        nav ul {
+            display: flex;
+            list-style: none;
+            gap: 24px;
+        }
+        nav a {
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        nav a:hover {
+            color: var(--primary);
+        }
+        .mobile-menu-btn {
+            display: none;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        /* 首页横幅 */
+        .hero {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #fff;
+            padding: 70px 0;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 38px;
+            margin-bottom: 16px;
+        }
+        .hero p {
+            font-size: 17px;
+            opacity: 0.95;
+            max-width: 650px;
+            margin: 0 auto 24px;
+        }
+        /* 服务 */
+        .services {
+            background: #fff;
+        }
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+        }
+        .service-card {
+            background: var(--light);
+            padding: 28px;
+            border-radius: 12px;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .service-card:hover {
+            transform: translateY(-4px);
+        }
+        .service-card h3 {
+            font-size: 19px;
+            margin: 14px 0 10px;
+            color: var(--primary);
+        }
+        .service-card p {
+            font-size: 15px;
+            color: var(--text-light);
+        }
+        /* 查询 */
+        .track-box {
+            background: #fff;
+            padding: 36px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            max-width: 760px;
+            margin: 0 auto;
+        }
+        .track-form {
+            display: flex;
+            gap: 12px;
+        }
+        .track-input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid var(--gray);
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .track-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .track-result {
+            background: var(--light);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        .track-item {
+            padding: 10px 0;
+            border-bottom: 1px solid var(--gray);
+        }
+        .track-time {
+            font-weight: 600;
+            color: var(--text-light);
+            font-size: 14px;
+        }
+        .track-desc {
+            margin-top: 4px;
+            font-size: 15px;
+        }
+        /* 联系 */
+        .contact-section {
+            background: #fff;
+        }
+        .contact-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 36px;
+        }
+        .contact-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group label {
+            font-weight: 500;
+            font-size: 15px;
+        }
+        .form-input, .form-textarea {
+            padding: 12px 16px;
+            border: 2px solid var(--gray);
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        .form-input:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .form-textarea {
+            min-height: 110px;
+            resize: vertical;
+        }
+        .contact-info-block {
+            background: var(--light);
+            padding: 28px;
+            border-radius: 12px;
+        }
+        .contact-info-block h3 {
+            font-size: 19px;
+            margin-bottom: 18px;
+            color: var(--primary);
+        }
+        .contact-info-block p {
+            font-size: 15px;
+            margin: 8px 0;
+            color: var(--text-light);
+        }
+        /* 页脚 */
+        footer {
+            background: #1f2937;
+            color: #fff;
+            padding: 40px 0 20px;
+        }
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 30px;
+            margin-bottom: 26px;
+        }
+        .footer-col h4 {
+            font-size: 17px;
+            margin-bottom: 14px;
+        }
+        .footer-col ul {
+            list-style: none;
+        }
+        .footer-col li {
+            margin: 7px 0;
+            color: #9ca3af;
+            font-size: 15px;
+        }
+        .footer-col a:hover {
+            color: #fff;
+        }
+        .footer-bottom {
+            text-align: center;
+            padding-top: 18px;
+            border-top: 1px solid #374151;
+            color: #9ca3af;
+            font-size: 14px;
+        }
+        /* ====================== 三端适配 ====================== */
+        @media (max-width: 992px) {
+            .hero h1 {
+                font-size: 32px;
+            }
+            .contact-wrapper {
+                grid-template-columns: 1fr;
+                gap: 30px;
+            }
+        }
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: block;
+            }
+            nav ul {
+                display: none;
+                flex-direction: column;
+                position: absolute;
+                top: 70px; left: 0; right: 0;
+                background: #fff;
+                padding: 20px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            }
+            nav.active ul {
+                display: flex;
+            }
+            .hero {
+                padding: 50px 0;
+            }
+            .hero h1 {
+                font-size: 26px;
+            }
+            .track-form {
+                flex-direction: column;
+            }
+            .track-box {
+                padding: 26px;
+            }
+            .section {
+                padding: 46px 0;
+            }
+        }
+        @media (max-width: 480px) {
+            .logo {
+                font-size: 19px;
+            }
+            .hero h1 {
+                font-size: 24px;
+            }
+            .section-title {
+                font-size: 24px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="top">
-        全球国际货运 | 安全 · 快捷 · 稳定 · 专业
-    </div>
-    <div class="header" id="home">
-        <div class="logo">海凯讯航国际物流</div>
-        <div class="company">
-            深圳市海凯讯航国际货运代理有限公司<br>
-            Shenzhen HaiKaiXunHang International Freight Forwarding Co.,Ltd.
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">海凯讯航国际物流</div>
+                <nav id="mainNav">
+                    <ul>
+                        <li><a href="#home">首页</a></li>
+                        <li><a href="#services">服务介绍</a></li>
+                        <li><a href="#track">物流查询</a></li>
+                        <li><a href="#contact">联系我们</a></li>
+                    </ul>
+                </nav>
+                <div class="mobile-menu-btn" onclick="toggleMenu()">☰</div>
+            </div>
         </div>
-    </div>
-    <div class="nav">
-        <a href=" ">首页</a >
-        <a href="#about">公司介绍</a >
-        <a href="#services">服务项目</a >
-        <a href="#track">物流查询</a >
-        <a href="#contact">联系我们</a >
-    </div>
-    <div class="banner">
-        <h1>专业国际物流 · 全球通达</h1>
-        <p>专注国际货运代理、跨境物流、清关派送，为客户提供安全、高效、稳定的一站式物流解决方案。</p >
-    </div>
-    <div class="container">
-        <div class="card" id="about">
-            <h2>公司简介</h2>
-            <p>深圳市海凯讯航国际货运代理有限公司是一家专业从事国际货运代理的企业，拥有多年行业经验，服务覆盖全球各主要国家和地区。</p >
-            <p>我们致力于为跨境电商、贸易客户提供安全、快捷、性价比高的国际物流解决方案。</p >
+    </header>
+    <section class="hero" id="home">
+        <div class="container">
+            <h1>专业跨境物流 · 全球通达</h1>
+            <p>深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。</p>
+            <a href="#track" class="btn btn-primary">立即查询</a>
         </div>
-        <div class="card" id="services">
-            <h2>服务项目</h2>
-            <p>• 国际快递 / 国际空派 / 国际海派</p >
-            <p>• 双清包税专线</p >
-            <p>• 跨境电商物流解决方案</p >
-            <p>• 清关、代理、派送一站式服务</p >
-        </div>
-        <div class="card" id="track">
-            <h2>官方物流查询</h2>
-            <div class="track-box">
-                <div class="track-title">运单号 / Tracking Number</div>
-                <div class="track-no">NG120028792252</div>
-                <div style="margin-top:20px">
-                    <script src="https://cdn.17track.net/widget/v2/track17-widget.min.js"></script>
-                    <div class="track17-widget" data-num="NG120028792252" data-lang="zh" data-theme="light" data-width="100%" data-height="420"></div>
+    </section>
+    <section class="section services" id="services">
+        <div class="container">
+            <h2 class="section-title">核心服务</h2>
+            <p class="section-subtitle">覆盖全球的物流网络，满足您多样化跨境运输需求</p>
+            <div class="services-grid">
+                <div class="service-card">
+                    <div style="font-size: 34px; color: var(--primary);">✈️</div>
+                    <h3>国际快递</h3>
+                    <p>DHL/UPS/FedEx官方合作，门到门快速递送，全程轨迹可查，时效稳定。</p>
+                </div>
+                <div class="service-card">
+                    <div style="font-size: 34px; color: var(--primary);">🚢</div>
+                    <h3>海运专线</h3>
+                    <p>美森、以星快船渠道，价格优惠，适合大货批量运输，清关派送一条龙。</p>
+                </div>
+                <div class="service-card">
+                    <div style="font-size: 34px; color: var(--primary);">✈️</div>
+                    <h3>空运专线</h3>
+                    <p>直飞/转飞渠道，时效快，覆盖全球主要机场，适合紧急补货。</p>
+                </div>
+                <div class="service-card">
+                    <div style="font-size: 34px; color: var(--primary);">📦</div>
+                    <h3>FBA头程</h3>
+                    <p>专业亚马逊FBA头程，含清关、派送、仓储一站式解决方案。</p>
                 </div>
             </div>
         </div>
-        <div class="card" id="contact">
-            <h2>联系我们</h2>
-            <p>公司名称：深圳市海凯讯航国际货运代理有限公司</p >
-            <p>业务范围：国际物流、跨境货运、全球代理</p >
-            <p>宗旨：安全 · 高效 · 稳定 · 放心</p >
+    </section>
+    <section class="section track-section" id="track">
+        <div class="container">
+            <h2 class="section-title">物流单号查询</h2>
+            <p class="section-subtitle">输入您的单号，一键查询最新物流状态</p>
+            <div class="track-box">
+                <form class="track-form" onsubmit="trackPackage(event)">
+                    <input type="text" id="trackingNumber" class="track-input" placeholder="请输入您的物流单号" required>
+                    <button type="submit" class="btn btn-primary">立即查询</button>
+                </form>
+                <div id="trackResult" class="track-result"></div>
+            </div>
         </div>
-    </div>
-    <div class="footer">
-        © 2026 深圳市海凯讯航国际货运代理有限公司 版权所有<br>
-        Shenzhen HaiKaiXunHang International Freight Forwarding Co.,Ltd.<br>
-        本系统由海凯讯航自主研发
-    </div>
+    </section>
+    <section class="section contact-section" id="contact">
+        <div class="container">
+            <h2 class="section-title">联系我们</h2>
+            <p class="section-subtitle">专业团队随时为您提供支持与服务</p>
+            <div class="contact-wrapper">
+                <form class="contact-form" onsubmit="submitContact(event)">
+                    <div class="form-group">
+                        <label for="name">姓名</label>
+                        <input type="text" id="name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">邮箱</label>
+                        <input type="email" id="email" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">电话</label>
+                        <input type="tel" id="phone" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="message">留言</label>
+                        <textarea id="message" class="form-textarea" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">提交留言</button>
+                </form>
+                <div class="contact-info-block">
+                    <h3>联系方式</h3>
+                    <p><strong>公司名称：</strong>深圳市海凯讯航国际货运代理有限公司</p>
+                    <p><strong>公司地址：</strong>深圳市宝安区西乡街道麻布社区麻布新村一巷1号205</p>
+                    <p><strong>联系电话：</strong>+86-17328511374</p>
+                    <p><strong>工作时间：</strong>周一至周五 9:00-18:00</p>
+                    <p><strong>邮箱：</strong>xunhanglogistics@gmail.com</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-col">
+                    <h4>关于我们</h4>
+                    <p>专注跨境电商物流，安全、快捷、高效，为您的全球生意保驾护航。</p>
+                </div>
+                <div class="footer-col">
+                    <h4>快速链接</h4>
+                    <ul>
+                        <li><a href="#home">首页</a></li>
+                        <li><a href="#services">服务介绍</a></li>
+                        <li><a href="#track">物流查询</a></li>
+                        <li><a href="#contact">联系我们</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>服务支持</h4>
+                    <ul>
+                        <li>常见问题</li>
+                        <li>物流时效</li>
+                        <li>禁运物品</li>
+                        <li>隐私政策</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 深圳市海凯讯航国际货运代理有限公司 保留所有权利</p>
+            </div>
+        </div>
+    </footer>
+    <script>
+        // 手机菜单
+        function toggleMenu() {
+            const nav = document.getElementById('mainNav');
+            nav.classList.toggle('active');
+        }
+        // 物流查询
+        const API_URL = 'https://hkxh-track-api-v2.vercel.app/api/track'; // 替换为你的真实接口地址
+        async function trackPackage(event) {
+            event.preventDefault();
+            const num = document.getElementById('trackingNumber').value.trim();
+            const resDiv = document.getElementById('trackResult');
+            if (!num) {
+                alert('请输入物流单号');
+                return;
+            }
+            resDiv.style.display = 'block';
+            resDiv.innerHTML = '<p>正在查询中，请稍候...</p>';
+            try {
+                const resp = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customNumber: num })
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    resDiv.innerHTML = `<p>${data.error}</p>`;
+                } else {
+                    let html = `<h3>单号：${data.customNumber}</h3><p><strong>状态：</strong>${data.status}</p><h4>物流轨迹：</h4>`;
+                    if (data.tracks && data.tracks.length > 0) {
+                        data.tracks.forEach(item => {
+                            html += `<div class="track-item"><div class="track-time">${item.time}</div><div class="track-desc">${item.desc}</div></div>`;
+                        });
+                    } else {
+                        html += '<p>暂无轨迹信息</p>';
+                    }
+                    resDiv.innerHTML = html;
+                }
+            } catch (e) {
+                resDiv.innerHTML = '<p>查询失败，请稍后重试</p>';
+            }
+        }
+        // 联系表单
+        function submitContact(e) {
+            e.preventDefault();
+            alert('提交成功！我们会尽快与您联系。');
+            document.querySelector('.contact-form').reset();
+        }
+    </script>
 </body>
 </html>
