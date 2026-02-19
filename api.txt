@@ -1,0 +1,62 @@
+const fetch = require('node-fetch');
+const trackingMap = require('../trackingMap.json');
+
+// 把这里替换成你从17Track复制的密钥
+const API_KEY = '3FC*****************0B3';
+
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  const { customNumber } = req.body;
+
+  if (!customNumber) {
+    return res.status(400).json({ error: '请输入物流单号' });
+  }
+
+  // 1. 查找真实的中国邮政单号
+  const realNumber = trackingMap[customNumber];
+  if (!realNumber) {
+    return res.status(404).json({ error: '单号不存在' });
+  }
+
+  try {
+    // 2. 调用17Track API查询真实单号
+    const response = await fetch('https://api.17track.net/track/v1/trackings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Tracking-Api-Key': API_KEY
+      },
+      body: JSON.stringify({
+        data: [{ number: realNumber }]
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.code === 200 && data.data && data.data.length > 0) {
+      const trackInfo = data.data[0];
+
+      // 3. 清洗结果，隐藏真实信息
+      const cleanedResult = {
+        customNumber: customNumber,
+        status: trackInfo.status || '运输中',
+        tracks: (trackInfo.tracks || []).map(item => ({
+          time: item.time,
+          desc: item.desc
+            .replace(/中国邮政|China Post|EMS/gi, '海凯讯航物流')
+            .replace(/\b[A-Z]{2}\d{9,12}CN\b/gi, customNumber)
+        }))
+      };
+
+      return res.json(cleanedResult);
+    } else {
+      return res.status(404).json({ error: '未查询到物流信息' });
+    }
+  } catch (error) {
+    console.error('查询失败:', error);
+    return res.status(500).json({ error: '查询失败，请稍后再试' });
+  }
+};
