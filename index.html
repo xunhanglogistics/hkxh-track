@@ -473,41 +473,41 @@
             nav.classList.toggle('active');
         }
         // 物流查询
-        const API_URL = 'https://hkxh-track-api-v2.vercel.app/api/track'; // 替换为你的真实接口地址
-        async function trackPackage(event) {
-            event.preventDefault();
-            const num = document.getElementById('trackingNumber').value.trim();
-            const resDiv = document.getElementById('trackResult');
-            if (!num) {
-                alert('请输入物流单号');
-                return;
-            }
-            resDiv.style.display = 'block';
-            resDiv.innerHTML = '<p>正在查询中，请稍候...</p>';
-            try {
-                const resp = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customNumber: num })
+const API_URL = 'https://hkxh-track-api-szv2.vercel.app/api/track'; // 替换为你的真实接口地址
+async function trackPackage(event) {
+    event.preventDefault();
+    const num = document.getElementById('trackingNumber').value.trim();
+    const resDiv = document.getElementById('trackResult');
+    if (!num) {
+        alert('请输入物流单号');
+        return;
+    }
+    resDiv.style.display = 'block';
+    resDiv.innerHTML = '<p>正在查询中，请稍候...</p >';
+    try {
+        const resp = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customNumber: num })
+        });
+        const data = await resp.json();
+        if (data.error) {
+            resDiv.innerHTML = `<p>${data.error}</p >`; // 现在会显示“未找到该单号信息”等友好提示
+        } else {
+            let html = `<h3>单号：${data.customNumber}</h3><p><strong>状态：</strong>${data.status}</p ><h4>物流轨迹：</h4>`;
+            if (data.tracks && data.tracks.length > 0) {
+                data.tracks.forEach(item => {
+                    html += `<div class="track-item"><div class="track-time">${item.time}</div><div class="track-desc">${item.desc}</div></div>`;
                 });
-                const data = await resp.json();
-                if (data.error) {
-                    resDiv.innerHTML = `<p>${data.error}</p>`;
-                } else {
-                    let html = `<h3>单号：${data.customNumber}</h3><p><strong>状态：</strong>${data.status}</p><h4>物流轨迹：</h4>`;
-                    if (data.tracks && data.tracks.length > 0) {
-                        data.tracks.forEach(item => {
-                            html += `<div class="track-item"><div class="track-time">${item.time}</div><div class="track-desc">${item.desc}</div></div>`;
-                        });
-                    } else {
-                        html += '<p>暂无轨迹信息</p>';
-                    }
-                    resDiv.innerHTML = html;
-                }
-            } catch (e) {
-                resDiv.innerHTML = '<p>查询失败，请稍后重试</p>';
+            } else {
+                html += '<p>暂无轨迹信息</p >';
             }
+            resDiv.innerHTML = html;
         }
+    } catch (e) {
+        resDiv.innerHTML = '<p>查询失败，请稍后重试</p >';
+    }
+}
         // 联系表单
         function submitContact(e) {
             e.preventDefault();
