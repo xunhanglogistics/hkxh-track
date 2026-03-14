@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +15,7 @@
             box-sizing: border-box;
             font-family: "Microsoft Yahei", -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
         }
+
         :root {
             --primary: #165DFF;
             --primary-dark: #0040C9;
@@ -22,20 +24,24 @@
             --text: #333;
             --text-light: #666;
         }
+
         body {
             background: var(--light);
             color: var(--text);
             line-height: 1.6;
         }
+
         a {
             text-decoration: none;
             color: inherit;
         }
+
         .container {
             width: 90%;
             max-width: 1200px;
             margin: 0 auto;
         }
+
         .btn {
             display: inline-block;
             padding: 12px 28px;
@@ -46,16 +52,20 @@
             cursor: pointer;
             font-size: 16px;
         }
+
         .btn-primary {
             background: var(--primary);
             color: #fff;
         }
+
         .btn-primary:hover {
             background: var(--primary-dark);
         }
+
         .section {
             padding: 60px 0;
         }
+
         .section-title {
             font-size: 30px;
             font-weight: 700;
@@ -63,6 +73,7 @@
             text-align: center;
             margin-bottom: 20px;
         }
+
         .section-subtitle {
             font-size: 16px;
             color: var(--text-light);
@@ -70,43 +81,51 @@
             max-width: 700px;
             margin: 0 auto 40px;
         }
+
         /* 导航 */
         header {
             background: #fff;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             position: sticky;
             top: 0;
             z-index: 999;
         }
+
         .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 15px 0;
         }
+
         .logo {
             font-size: 22px;
             font-weight: 700;
             color: var(--primary);
         }
+
         nav ul {
             display: flex;
             list-style: none;
             gap: 24px;
         }
+
         nav a {
             font-weight: 500;
             transition: color 0.3s;
         }
+
         nav a:hover {
             color: var(--primary);
         }
+
         .lang-switcher {
             display: flex;
             align-items: center;
             gap: 4px;
             margin-right: 16px;
         }
+
         .lang-switcher button {
             background: none;
             border: none;
@@ -116,18 +135,22 @@
             padding: 4px 8px;
             border-radius: 4px;
         }
+
         .lang-switcher button:hover {
             color: var(--primary);
         }
+
         .lang-switcher button.active {
             color: var(--primary);
             font-weight: 600;
         }
+
         .mobile-menu-btn {
             display: none;
             font-size: 24px;
             cursor: pointer;
         }
+
         /* 首页横幅 */
         .hero {
             background: linear-gradient(135deg, var(--primary), var(--primary-dark));
@@ -135,25 +158,30 @@
             padding: 70px 0;
             text-align: center;
         }
+
         .hero h1 {
             font-size: 38px;
             margin-bottom: 16px;
         }
+
         .hero p {
             font-size: 17px;
             opacity: 0.95;
             max-width: 650px;
             margin: 0 auto 24px;
         }
+
         /* 服务 */
         .services {
             background: #fff;
         }
+
         .services-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 24px;
         }
+
         .service-card {
             background: var(--light);
             padding: 28px;
@@ -161,31 +189,37 @@
             text-align: center;
             transition: transform 0.3s;
         }
+
         .service-card:hover {
             transform: translateY(-4px);
         }
+
         .service-card h3 {
             font-size: 19px;
             margin: 14px 0 10px;
             color: var(--primary);
         }
+
         .service-card p {
             font-size: 15px;
             color: var(--text-light);
         }
+
         /* 查询 */
         .track-box {
             background: #fff;
             padding: 36px;
             border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
             max-width: 760px;
             margin: 0 auto;
         }
+
         .track-form {
             display: flex;
             gap: 12px;
         }
+
         .track-input {
             flex: 1;
             padding: 14px 18px;
@@ -193,10 +227,12 @@
             border-radius: 8px;
             font-size: 16px;
         }
+
         .track-input:focus {
             outline: none;
             border-color: var(--primary);
         }
+
         .track-result {
             background: var(--light);
             padding: 20px;
@@ -204,98 +240,121 @@
             margin-top: 20px;
             display: none;
         }
+
         .track-item {
             padding: 10px 0;
             border-bottom: 1px solid var(--gray);
         }
+
         .track-time {
             font-weight: 600;
             color: var(--text-light);
             font-size: 14px;
         }
+
         .track-desc {
             margin-top: 4px;
             font-size: 15px;
         }
+
         /* 联系 */
         .contact-section {
             background: #fff;
         }
+
         .contact-wrapper {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 36px;
         }
+
         .contact-form {
             display: flex;
             flex-direction: column;
             gap: 16px;
         }
+
         .form-group {
             display: flex;
             flex-direction: column;
             gap: 6px;
         }
+
         .form-group label {
             font-weight: 500;
             font-size: 15px;
         }
-        .form-input, .form-textarea {
+
+        .form-input,
+        .form-textarea {
             padding: 12px 16px;
             border: 2px solid var(--gray);
             border-radius: 8px;
             font-size: 15px;
         }
-        .form-input:focus, .form-textarea:focus {
+
+        .form-input:focus,
+        .form-textarea:focus {
             outline: none;
             border-color: var(--primary);
         }
+
         .form-textarea {
             min-height: 110px;
             resize: vertical;
         }
+
         .contact-info-block {
             background: var(--light);
             padding: 28px;
             border-radius: 12px;
         }
+
         .contact-info-block h3 {
             font-size: 19px;
             margin-bottom: 18px;
             color: var(--primary);
         }
+
         .contact-info-block p {
             font-size: 15px;
             margin: 8px 0;
             color: var(--text-light);
         }
+
         /* 页脚 */
         footer {
             background: #1f2937;
             color: #fff;
             padding: 40px 0 20px;
         }
+
         .footer-content {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 30px;
             margin-bottom: 26px;
         }
+
         .footer-col h4 {
             font-size: 17px;
             margin-bottom: 14px;
         }
+
         .footer-col ul {
             list-style: none;
         }
+
         .footer-col li {
             margin: 7px 0;
             color: #9ca3af;
             font-size: 15px;
         }
+
         .footer-col a:hover {
             color: #fff;
         }
+
         .footer-bottom {
             text-align: center;
             padding-top: 18px;
@@ -303,61 +362,77 @@
             color: #9ca3af;
             font-size: 14px;
         }
+
         /* ====================== 三端适配 ====================== */
         @media (max-width: 992px) {
             .hero h1 {
                 font-size: 32px;
             }
+
             .contact-wrapper {
                 grid-template-columns: 1fr;
                 gap: 30px;
             }
         }
+
         @media (max-width: 768px) {
             .mobile-menu-btn {
                 display: block;
             }
+
             nav ul {
                 display: none;
                 flex-direction: column;
                 position: absolute;
-                top: 70px; left: 0; right: 0;
+                top: 70px;
+                left: 0;
+                right: 0;
                 background: #fff;
                 padding: 20px;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
             }
+
             nav.active ul {
                 display: flex;
             }
+
             .hero {
                 padding: 50px 0;
             }
+
             .hero h1 {
                 font-size: 26px;
             }
+
             .track-form {
                 flex-direction: column;
             }
+
             .track-box {
                 padding: 26px;
             }
+
             .section {
                 padding: 46px 0;
             }
         }
+
         @media (max-width: 480px) {
             .logo {
                 font-size: 19px;
             }
+
             .hero h1 {
                 font-size: 24px;
             }
+
             .section-title {
                 font-size: 24px;
             }
         }
     </style>
 </head>
+
 <body>
     <header>
         <div class="container">
@@ -421,11 +496,14 @@
             <p class="section-subtitle" data-i18n="track_subtitle">输入您的单号，一键查询最新物流状态</p>
             <div class="track-box">
                 <form class="track-form" onsubmit="trackPackage(event)">
-                    <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder" placeholder="请输入您的物流单号" required>
+                    <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
+                        placeholder="请输入您的物流单号" required>
                     <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
-                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px" data-i18n="track_btn_test" onclick="runRealApiTest()">用真实接口验证</button>
+                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px"
+                        data-i18n="track_btn_test" onclick="runRealApiTest()">用真实接口验证</button>
                 </form>
-                <p style="font-size:13px;color:#666;margin-top:8px" data-i18n="track_hint">点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。</p>
+                <p style="font-size:13px;color:#666;margin-top:8px" data-i18n="track_hint">点击「用真实接口验证」将使用测试环境参数请求
+                    Speedaf 接口，用返回的真实数据验证页面展示。</p>
                 <div id="trackResult" class="track-result"></div>
             </div>
         </div>
@@ -452,15 +530,19 @@
                         <label for="message" data-i18n="contact_message">留言</label>
                         <textarea id="message" class="form-textarea" required></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn" data-i18n="contact_submit">提交留言</button>
+                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn"
+                        data-i18n="contact_submit">提交留言</button>
                     <p id="contactFeedback" style="margin-top:12px;font-size:14px;display:none"></p>
                 </form>
                 <div class="contact-info-block">
                     <h3 data-i18n="contact_info_title">联系方式</h3>
-                    <p><strong data-i18n="contact_company_label">公司名称：</strong><span data-i18n="contact_company">深圳市海凯讯航国际货运代理有限公司</span></p>
-                    <p><strong data-i18n="contact_address_label">公司地址：</strong><span data-i18n="contact_address">深圳市宝安区西乡街道麻布社区麻布新村一巷1号205</span></p>
+                    <p><strong data-i18n="contact_company_label">公司名称：</strong><span
+                            data-i18n="contact_company">深圳市海凯讯航国际货运代理有限公司</span></p>
+                    <p><strong data-i18n="contact_address_label">公司地址：</strong><span
+                            data-i18n="contact_address">深圳市宝安区西乡街道麻布社区麻布新村一巷1号205</span></p>
                     <p><strong data-i18n="contact_phone_label">联系电话：</strong>+86-15874158119</p>
-                    <p><strong data-i18n="contact_hours_label">工作时间：</strong><span data-i18n="contact_hours">周一至周五 9:00-18:00</span></p>
+                    <p><strong data-i18n="contact_hours_label">工作时间：</strong><span data-i18n="contact_hours">周一至周五
+                            9:00-18:00</span></p>
                     <p><strong data-i18n="contact_email_label">邮箱：</strong>xunhanglogistics@gmail.com</p>
                 </div>
             </div>
@@ -536,7 +618,7 @@
                 contact_company_label: '公司名称：',
                 contact_company: '深圳市海凯讯航国际货运代理有限公司',
                 contact_address_label: '公司地址：',
-                contact_address: '深圳市宝安区西乡街道麻布社区麻布新村一巷1号205',
+                contact_address: '中国·深圳市宝安区西乡街道麻布社区麻布新村一巷1号205',
                 contact_phone_label: '联系电话：',
                 contact_hours_label: '工作时间：',
                 contact_hours: '周一至周五 9:00-18:00',
@@ -604,7 +686,7 @@
                 contact_company_label: 'Company: ',
                 contact_company: 'Shenzhen HKXH International Freight Forwarding Co., Ltd.',
                 contact_address_label: 'Address: ',
-                contact_address: 'Room 205, Lane 1, Mabuxincun, Mabu Community, Xixiang Street, Bao\'an District, Shenzhen',
+                contact_address: 'Room 205, Lane 1, Mabuxincun, Mabu Community, Xixiang Street, Bao\'an District, Shenzhen, China(Mainland)',
                 contact_phone_label: 'Phone: ',
                 contact_hours_label: 'Hours: ',
                 contact_hours: 'Mon–Fri 9:00–18:00',
@@ -638,17 +720,17 @@
             }
         };
         function applyI18n() {
-            document.querySelectorAll('[data-i18n]').forEach(function(el) {
+            document.querySelectorAll('[data-i18n]').forEach(function (el) {
                 var k = el.getAttribute('data-i18n');
                 if (I18N[currentLang] && I18N[currentLang][k]) el.textContent = I18N[currentLang][k];
             });
-            document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(function (el) {
                 var k = el.getAttribute('data-i18n-placeholder');
                 if (I18N[currentLang] && I18N[currentLang][k]) el.placeholder = I18N[currentLang][k];
             });
             document.title = I18N[currentLang].page_title;
             document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
-            document.querySelectorAll('.lang-switcher button').forEach(function(btn) {
+            document.querySelectorAll('.lang-switcher button').forEach(function (btn) {
                 btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
             });
         }
@@ -657,10 +739,10 @@
             localStorage.setItem('lang', lang);
             applyI18n();
         }
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             applyI18n();
-            document.querySelectorAll('.lang-switcher button').forEach(function(btn) {
-                btn.addEventListener('click', function() { setLang(btn.getAttribute('data-lang')); });
+            document.querySelectorAll('.lang-switcher button').forEach(function (btn) {
+                btn.addEventListener('click', function () { setLang(btn.getAttribute('data-lang')); });
             });
         });
         // 手机菜单
@@ -773,7 +855,7 @@
             var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
             var html = '<h3>' + numLabel + mailNo + '</h3><p><strong>' + statusLabel + '</strong>' + status + '</p><h4>' + t2.msg_track_trail + '</h4>';
             if (tracks.length > 0) {
-                tracks.forEach(function(tk) {
+                tracks.forEach(function (tk) {
                     var desc = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
                     var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + (desc ? desc.replace(/</g, '&lt;') : '') + '</div>';
                     if (tk.pictureUrl) block += ' <a href="' + tk.pictureUrl + '" target="_blank" rel="noopener">' + t2.msg_track_view_pic + '</a>';
@@ -875,7 +957,7 @@
                         _subject: subj
                     })
                 });
-                var data = resp.ok ? await resp.json().catch(function() { return {}; }) : null;
+                var data = resp.ok ? await resp.json().catch(function () { return {}; }) : null;
                 if (resp.ok && (data && data.ok !== false)) {
                     feedback.style.color = 'var(--primary)';
                     feedback.textContent = t.msg_contact_ok;
