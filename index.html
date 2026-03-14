@@ -101,6 +101,28 @@
         nav a:hover {
             color: var(--primary);
         }
+        .lang-switcher {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 16px;
+        }
+        .lang-switcher button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text-light);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .lang-switcher button:hover {
+            color: var(--primary);
+        }
+        .lang-switcher button.active {
+            color: var(--primary);
+            font-weight: 600;
+        }
         .mobile-menu-btn {
             display: none;
             font-size: 24px;
@@ -340,101 +362,106 @@
     <header>
         <div class="container">
             <div class="header-content">
-                <div class="logo">海凯讯航国际物流</div>
+                <div class="logo" data-i18n="logo">海凯讯航国际物流</div>
                 <nav id="mainNav">
                     <ul>
-                        <li><a href="#home">首页</a></li>
-                        <li><a href="#services">服务介绍</a></li>
-                        <li><a href="#track">物流查询</a></li>
-                        <li><a href="#contact">联系我们</a></li>
+                        <li><a href="#home" data-i18n="nav_home">首页</a></li>
+                        <li><a href="#services" data-i18n="nav_services">服务介绍</a></li>
+                        <li><a href="#track" data-i18n="nav_track">物流查询</a></li>
+                        <li><a href="#contact" data-i18n="nav_contact">联系我们</a></li>
                     </ul>
                 </nav>
+                <div class="lang-switcher">
+                    <button type="button" data-lang="zh" aria-label="中文">中文</button>
+                    <span style="color:var(--gray)">|</span>
+                    <button type="button" data-lang="en" aria-label="English">English</button>
+                </div>
                 <div class="mobile-menu-btn" onclick="toggleMenu()">☰</div>
             </div>
         </div>
     </header>
     <section class="hero" id="home">
         <div class="container">
-            <h1>专业跨境物流 · 全球通达</h1>
-            <p>深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。</p>
-            <a href="#track" class="btn btn-primary">立即查询</a>
+            <h1 data-i18n="hero_title">专业跨境物流 · 全球通达</h1>
+            <p data-i18n="hero_desc">深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。</p>
+            <a href="#track" class="btn btn-primary" data-i18n="hero_btn">立即查询</a>
         </div>
     </section>
     <section class="section services" id="services">
         <div class="container">
-            <h2 class="section-title">核心服务</h2>
-            <p class="section-subtitle">覆盖全球的物流网络，满足您多样化跨境运输需求</p>
+            <h2 class="section-title" data-i18n="services_title">核心服务</h2>
+            <p class="section-subtitle" data-i18n="services_subtitle">覆盖全球的物流网络，满足您多样化跨境运输需求</p>
             <div class="services-grid">
                 <div class="service-card">
                     <div style="font-size: 34px; color: var(--primary);">✈️</div>
-                    <h3>国际快递</h3>
-                    <p>DHL/UPS/FedEx官方合作，门到门快速递送，全程轨迹可查，时效稳定。</p>
+                    <h3 data-i18n="s1_title">国际快递</h3>
+                    <p data-i18n="s1_desc">DHL/UPS/FedEx官方合作，门到门快速递送，全程轨迹可查，时效稳定。</p>
                 </div>
                 <div class="service-card">
                     <div style="font-size: 34px; color: var(--primary);">🚢</div>
-                    <h3>海运专线</h3>
-                    <p>美森、以星快船渠道，价格优惠，适合大货批量运输，清关派送一条龙。</p>
+                    <h3 data-i18n="s2_title">海运专线</h3>
+                    <p data-i18n="s2_desc">美森、以星快船渠道，价格优惠，适合大货批量运输，清关派送一条龙。</p>
                 </div>
                 <div class="service-card">
                     <div style="font-size: 34px; color: var(--primary);">✈️</div>
-                    <h3>空运专线</h3>
-                    <p>直飞/转飞渠道，时效快，覆盖全球主要机场，适合紧急补货。</p>
+                    <h3 data-i18n="s3_title">空运专线</h3>
+                    <p data-i18n="s3_desc">直飞/转飞渠道，时效快，覆盖全球主要机场，适合紧急补货。</p>
                 </div>
                 <div class="service-card">
                     <div style="font-size: 34px; color: var(--primary);">📦</div>
-                    <h3>FBA头程</h3>
-                    <p>专业亚马逊FBA头程，含清关、派送、仓储一站式解决方案。</p>
+                    <h3 data-i18n="s4_title">FBA头程</h3>
+                    <p data-i18n="s4_desc">专业亚马逊FBA头程，含清关、派送、仓储一站式解决方案。</p>
                 </div>
             </div>
         </div>
     </section>
     <section class="section track-section" id="track">
         <div class="container">
-            <h2 class="section-title">物流单号查询</h2>
-            <p class="section-subtitle">输入您的单号，一键查询最新物流状态</p>
+            <h2 class="section-title" data-i18n="track_title">物流单号查询</h2>
+            <p class="section-subtitle" data-i18n="track_subtitle">输入您的单号，一键查询最新物流状态</p>
             <div class="track-box">
                 <form class="track-form" onsubmit="trackPackage(event)">
-                    <input type="text" id="trackingNumber" class="track-input" placeholder="请输入您的物流单号" required>
-                    <button type="submit" class="btn btn-primary">立即查询</button>
-                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px" onclick="runRealApiTest()">用真实接口验证</button>
+                    <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder" placeholder="请输入您的物流单号" required>
+                    <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
+                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px" data-i18n="track_btn_test" onclick="runRealApiTest()">用真实接口验证</button>
                 </form>
-                <p style="font-size:13px;color:#666;margin-top:8px">点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。</p>
+                <p style="font-size:13px;color:#666;margin-top:8px" data-i18n="track_hint">点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。</p>
                 <div id="trackResult" class="track-result"></div>
             </div>
         </div>
     </section>
     <section class="section contact-section" id="contact">
         <div class="container">
-            <h2 class="section-title">联系我们</h2>
-            <p class="section-subtitle">专业团队随时为您提供支持与服务</p>
+            <h2 class="section-title" data-i18n="contact_title">联系我们</h2>
+            <p class="section-subtitle" data-i18n="contact_subtitle">专业团队随时为您提供支持与服务</p>
             <div class="contact-wrapper">
                 <form class="contact-form" onsubmit="submitContact(event)">
                     <div class="form-group">
-                        <label for="name">姓名</label>
+                        <label for="name" data-i18n="contact_name">姓名</label>
                         <input type="text" id="name" class="form-input" required>
                     </div>
                     <div class="form-group">
-                        <label for="email">邮箱</label>
+                        <label for="email" data-i18n="contact_email">邮箱</label>
                         <input type="email" id="email" class="form-input" required>
                     </div>
                     <div class="form-group">
-                        <label for="phone">电话</label>
+                        <label for="phone" data-i18n="contact_phone">电话</label>
                         <input type="tel" id="phone" class="form-input">
                     </div>
                     <div class="form-group">
-                        <label for="message">留言</label>
+                        <label for="message" data-i18n="contact_message">留言</label>
                         <textarea id="message" class="form-textarea" required></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn">提交留言</button>
+                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn" data-i18n="contact_submit">提交留言</button>
                     <p id="contactFeedback" style="margin-top:12px;font-size:14px;display:none"></p>
                 </form>
                 <div class="contact-info-block">
-                    <h3>联系方式</h3>
-                    <p><strong>公司名称：</strong>深圳市海凯讯航国际货运代理有限公司</p>
-                    <p><strong>公司地址：</strong>深圳市宝安区西乡街道麻布社区麻布新村一巷1号205</p>
-                    <p><strong>联系电话：</strong>+86-17328511374</p>
-                    <p><strong>工作时间：</strong>周一至周五 9:00-18:00</p>
-                    <p><strong>邮箱：</strong>xunhanglogistics@gmail.com</p>
+                    <h3 data-i18n="contact_info_title">联系方式</h3>
+                    <p><strong data-i18n="contact_company_label">公司名称：</strong><span data-i18n="contact_company">深圳市海凯讯航国际货运代理有限公司</span></p>
+                    <p><strong data-i18n="contact_address_label">公司地址：</strong><span data-i18n="contact_address">深圳市宝安区西乡街道麻布社区麻布新村一巷1号205</span></p>
+                    <p><strong data-i18n="contact_phone_label">联系电话：</strong>+86-15874158119</p>
+                    <p><strong data-i18n="contact_hours_label">工作时间：</strong><span data-i18n="contact_hours">周一至周五 9:00-18:00</span></p>
+                    <p><strong data-i18n="contact_email_label">邮箱：</strong>xunhanglogistics@gmail.com</p>
                 </div>
             </div>
         </div>
@@ -443,34 +470,199 @@
         <div class="container">
             <div class="footer-content">
                 <div class="footer-col">
-                    <h4>关于我们</h4>
-                    <p>专注跨境电商物流，安全、快捷、高效，为您的全球生意保驾护航。</p>
+                    <h4 data-i18n="footer_about">关于我们</h4>
+                    <p data-i18n="footer_about_text">专注跨境电商物流，安全、快捷、高效，为您的全球生意保驾护航。</p>
                 </div>
                 <div class="footer-col">
-                    <h4>快速链接</h4>
+                    <h4 data-i18n="footer_links">快速链接</h4>
                     <ul>
-                        <li><a href="#home">首页</a></li>
-                        <li><a href="#services">服务介绍</a></li>
-                        <li><a href="#track">物流查询</a></li>
-                        <li><a href="#contact">联系我们</a></li>
+                        <li><a href="#home" data-i18n="nav_home">首页</a></li>
+                        <li><a href="#services" data-i18n="nav_services">服务介绍</a></li>
+                        <li><a href="#track" data-i18n="nav_track">物流查询</a></li>
+                        <li><a href="#contact" data-i18n="nav_contact">联系我们</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
-                    <h4>服务支持</h4>
+                    <h4 data-i18n="footer_support">服务支持</h4>
                     <ul>
-                        <li>常见问题</li>
-                        <li>物流时效</li>
-                        <li>禁运物品</li>
-                        <li>隐私政策</li>
+                        <li data-i18n="footer_faq">常见问题</li>
+                        <li data-i18n="footer_delivery">物流时效</li>
+                        <li data-i18n="footer_prohibited">禁运物品</li>
+                        <li data-i18n="footer_privacy">隐私政策</li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2026 深圳市海凯讯航国际货运代理有限公司 保留所有权利</p>
+                <p data-i18n="footer_copyright">&copy; 2026 深圳市海凯讯航国际货运代理有限公司 保留所有权利</p>
             </div>
         </div>
     </footer>
     <script>
+        var currentLang = localStorage.getItem('lang') || 'zh';
+        var I18N = {
+            zh: {
+                logo: '海凯讯航国际物流',
+                nav_home: '首页',
+                nav_services: '服务介绍',
+                nav_track: '物流查询',
+                nav_contact: '联系我们',
+                hero_title: '专业跨境物流 · 全球通达',
+                hero_desc: '深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。',
+                hero_btn: '立即查询',
+                services_title: '核心服务',
+                services_subtitle: '覆盖全球的物流网络，满足您多样化跨境运输需求',
+                s1_title: '国际快递',
+                s1_desc: 'DHL/UPS/FedEx官方合作，门到门快速递送，全程轨迹可查，时效稳定。',
+                s2_title: '海运专线',
+                s2_desc: '美森、以星快船渠道，价格优惠，适合大货批量运输，清关派送一条龙。',
+                s3_title: '空运专线',
+                s3_desc: '直飞/转飞渠道，时效快，覆盖全球主要机场，适合紧急补货。',
+                s4_title: 'FBA头程',
+                s4_desc: '专业亚马逊FBA头程，含清关、派送、仓储一站式解决方案。',
+                track_title: '物流单号查询',
+                track_subtitle: '输入您的单号，一键查询最新物流状态',
+                track_placeholder: '请输入您的物流单号',
+                track_btn: '立即查询',
+                track_btn_test: '用真实接口验证',
+                track_hint: '点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。',
+                contact_title: '联系我们',
+                contact_subtitle: '专业团队随时为您提供支持与服务',
+                contact_name: '姓名',
+                contact_email: '邮箱',
+                contact_phone: '电话',
+                contact_message: '留言',
+                contact_submit: '提交留言',
+                contact_info_title: '联系方式',
+                contact_company_label: '公司名称：',
+                contact_company: '深圳市海凯讯航国际货运代理有限公司',
+                contact_address_label: '公司地址：',
+                contact_address: '深圳市宝安区西乡街道麻布社区麻布新村一巷1号205',
+                contact_phone_label: '联系电话：',
+                contact_hours_label: '工作时间：',
+                contact_hours: '周一至周五 9:00-18:00',
+                contact_email_label: '邮箱：',
+                footer_about: '关于我们',
+                footer_about_text: '专注跨境电商物流，安全、快捷、高效，为您的全球生意保驾护航。',
+                footer_links: '快速链接',
+                footer_support: '服务支持',
+                footer_faq: '常见问题',
+                footer_delivery: '物流时效',
+                footer_prohibited: '禁运物品',
+                footer_privacy: '隐私政策',
+                footer_copyright: '© 2026 深圳市海凯讯航国际货运代理有限公司 保留所有权利',
+                page_title: '海凯讯航国际物流 | 专业跨境物流解决方案',
+                msg_track_enter: '请输入物流单号',
+                msg_track_loading: '正在查询中，请稍候...',
+                msg_track_fail: '查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。',
+                msg_track_no_result: '未找到该单号信息',
+                msg_track_no_status: '暂无状态',
+                msg_track_trail: '物流轨迹：',
+                msg_track_no_trail: '暂无轨迹信息',
+                msg_track_view_pic: '查看图片',
+                msg_track_test_loading: '正在请求真实接口（测试环境）...',
+                msg_track_test_fail: '请求失败：',
+                msg_contact_fill: '请填写姓名、邮箱和留言',
+                msg_contact_submitting: '正在提交...',
+                msg_contact_ok: '提交成功！我们会尽快通过您留下的邮箱与您联系。',
+                msg_contact_fail: '提交失败，请稍后重试或直接致电/发邮件联系我们。',
+                msg_contact_network: '网络异常，请检查网络后重试。',
+                msg_track_timeout_hint: '可能原因：① 测试环境暂无该单号数据，接口查询超时；② 签名(sign)算法与文档不一致导致服务端处理异常。建议向 Speedaf 确认：测试环境是否有可用测试单号、以及正确的签名规则。'
+            },
+            en: {
+                logo: 'HKXH International Logistics',
+                nav_home: 'Home',
+                nav_services: 'Services',
+                nav_track: 'Track',
+                nav_contact: 'Contact',
+                hero_title: 'Cross-Border Logistics · Worldwide',
+                hero_desc: 'Shenzhen HKXH International Freight Forwarding Co., Ltd. provides safe, fast, efficient and reliable one-stop cross-border logistics solutions for your global business.',
+                hero_btn: 'Track Now',
+                services_title: 'Core Services',
+                services_subtitle: 'Global logistics network for your diverse cross-border shipping needs',
+                s1_title: 'International Express',
+                s1_desc: 'DHL/UPS/FedEx partners, door-to-door delivery, full tracking, reliable transit times.',
+                s2_title: 'Ocean Freight',
+                s2_desc: 'Matson, ZIM express lanes, competitive rates, bulk cargo, customs and delivery included.',
+                s3_title: 'Air Freight',
+                s3_desc: 'Direct and transship routes, fast delivery, major airports worldwide, ideal for urgent restock.',
+                s4_title: 'FBA Forwarding',
+                s4_desc: 'Amazon FBA first-mile: customs, delivery and storage solutions.',
+                track_title: 'Track Your Shipment',
+                track_subtitle: 'Enter your tracking number to see the latest status',
+                track_placeholder: 'Enter tracking number',
+                track_btn: 'Track',
+                track_btn_test: 'Test with real API',
+                track_hint: 'Click "Test with real API" to request Speedaf test environment and verify the display with real data.',
+                contact_title: 'Contact Us',
+                contact_subtitle: 'Our team is ready to support you',
+                contact_name: 'Name',
+                contact_email: 'Email',
+                contact_phone: 'Phone',
+                contact_message: 'Message',
+                contact_submit: 'Submit',
+                contact_info_title: 'Contact Info',
+                contact_company_label: 'Company: ',
+                contact_company: 'Shenzhen HKXH International Freight Forwarding Co., Ltd.',
+                contact_address_label: 'Address: ',
+                contact_address: 'Room 205, Lane 1, Mabuxincun, Mabu Community, Xixiang Street, Bao\'an District, Shenzhen',
+                contact_phone_label: 'Phone: ',
+                contact_hours_label: 'Hours: ',
+                contact_hours: 'Mon–Fri 9:00–18:00',
+                contact_email_label: 'Email: ',
+                footer_about: 'About Us',
+                footer_about_text: 'Cross-border e-commerce logistics: safe, fast and efficient for your global business.',
+                footer_links: 'Quick Links',
+                footer_support: 'Support',
+                footer_faq: 'FAQ',
+                footer_delivery: 'Transit Time',
+                footer_prohibited: 'Prohibited Items',
+                footer_privacy: 'Privacy',
+                footer_copyright: '© 2026 Shenzhen HKXH International Freight Forwarding Co., Ltd. All rights reserved.',
+                page_title: 'HKXH International Logistics | Cross-Border Logistics',
+                msg_track_enter: 'Please enter tracking number',
+                msg_track_loading: 'Searching...',
+                msg_track_fail: 'Query failed. If you see a CORS error, use a backend proxy.',
+                msg_track_no_result: 'No tracking information found',
+                msg_track_no_status: 'No status',
+                msg_track_trail: 'Tracking:',
+                msg_track_no_trail: 'No tracking details',
+                msg_track_view_pic: 'View image',
+                msg_track_test_loading: 'Requesting real API (test env)...',
+                msg_track_test_fail: 'Request failed: ',
+                msg_contact_fill: 'Please fill in name, email and message',
+                msg_contact_submitting: 'Submitting...',
+                msg_contact_ok: 'Submitted! We will contact you via your email soon.',
+                msg_contact_fail: 'Submission failed. Please try again or contact us by phone/email.',
+                msg_contact_network: 'Network error. Please check your connection and try again.',
+                msg_track_timeout_hint: 'Possible causes: test env has no data for this number or sign algorithm mismatch. Please confirm with Speedaf: test tracking number and correct sign rules.'
+            }
+        };
+        function applyI18n() {
+            document.querySelectorAll('[data-i18n]').forEach(function(el) {
+                var k = el.getAttribute('data-i18n');
+                if (I18N[currentLang] && I18N[currentLang][k]) el.textContent = I18N[currentLang][k];
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+                var k = el.getAttribute('data-i18n-placeholder');
+                if (I18N[currentLang] && I18N[currentLang][k]) el.placeholder = I18N[currentLang][k];
+            });
+            document.title = I18N[currentLang].page_title;
+            document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+            document.querySelectorAll('.lang-switcher button').forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+            });
+        }
+        function setLang(lang) {
+            currentLang = lang;
+            localStorage.setItem('lang', lang);
+            applyI18n();
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            applyI18n();
+            document.querySelectorAll('.lang-switcher button').forEach(function(btn) {
+                btn.addEventListener('click', function() { setLang(btn.getAttribute('data-lang')); });
+            });
+        });
         // 手机菜单
         function toggleMenu() {
             const nav = document.getElementById('mainNav');
@@ -557,35 +749,39 @@
         function renderSpeedafResponse(raw, inputNumber, resDiv) {
             let data = raw;
             if (raw && typeof raw.success === 'boolean' && !raw.success) {
-                var msg = (raw.error && raw.error.message) ? raw.error.message : '未找到该单号信息';
+                var t = I18N[currentLang] || I18N.zh;
+                var msg = (raw.error && raw.error.message) ? raw.error.message : t.msg_track_no_result;
                 var code = (raw.error && raw.error.code) ? raw.error.code : '';
                 var hint = '';
-                if (msg.toLowerCase().indexOf('timeout') !== -1) {
-                    hint = '<p style="margin-top:12px;font-size:13px;color:#666">可能原因：① 测试环境暂无该单号数据，接口查询超时；② 签名(sign)算法与文档不一致导致服务端处理异常。建议向 Speedaf 确认：测试环境是否有可用测试单号、以及正确的签名规则。</p>';
+                if (msg.toLowerCase().indexOf('timeout') !== -1 && t.msg_track_timeout_hint) {
+                    hint = '<p style="margin-top:12px;font-size:13px;color:#666">' + t.msg_track_timeout_hint + '</p>';
                 }
                 resDiv.innerHTML = '<p>' + (msg.replace(/</g, '&lt;')) + (code ? ' <span style="color:#999">(' + code + ')</span>' : '') + '</p>' + hint;
                 return;
             }
             if (raw && raw.data !== undefined) data = raw.data;
+            var t2 = I18N[currentLang] || I18N.zh;
             if (!Array.isArray(data) || data.length === 0) {
-                resDiv.innerHTML = '<p>未找到该单号信息</p>';
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
                 return;
             }
             var item = data[0];
             var mailNo = item.mailNo || inputNumber;
             var tracks = item.tracks || [];
-            var status = tracks.length > 0 ? tracks[0].actionName : '暂无状态';
-            var html = '<h3>单号：' + mailNo + '</h3><p><strong>状态：</strong>' + status + '</p><h4>物流轨迹：</h4>';
+            var status = tracks.length > 0 ? tracks[0].actionName : t2.msg_track_no_status;
+            var numLabel = currentLang === 'zh' ? '单号：' : 'Tracking: ';
+            var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
+            var html = '<h3>' + numLabel + mailNo + '</h3><p><strong>' + statusLabel + '</strong>' + status + '</p><h4>' + t2.msg_track_trail + '</h4>';
             if (tracks.length > 0) {
-                tracks.forEach(function(t) {
-                    var desc = t.message || t.msgEng || t.msgLoc || t.actionName || '';
-                    var block = '<div class="track-item"><div class="track-time">' + (t.time || '') + '</div><div class="track-desc">' + (desc ? desc.replace(/</g, '&lt;') : '') + '</div>';
-                    if (t.pictureUrl) block += ' <a href="' + t.pictureUrl + '" target="_blank" rel="noopener">查看图片</a>';
+                tracks.forEach(function(tk) {
+                    var desc = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
+                    var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + (desc ? desc.replace(/</g, '&lt;') : '') + '</div>';
+                    if (tk.pictureUrl) block += ' <a href="' + tk.pictureUrl + '" target="_blank" rel="noopener">' + t2.msg_track_view_pic + '</a>';
                     block += '</div>';
                     html += block;
                 });
             } else {
-                html += '<p>暂无轨迹信息</p>';
+                html += '<p>' + t2.msg_track_no_trail + '</p>';
             }
             resDiv.innerHTML = html;
         }
@@ -593,12 +789,13 @@
             event.preventDefault();
             var num = document.getElementById('trackingNumber').value.trim();
             var resDiv = document.getElementById('trackResult');
+            var t = I18N[currentLang] || I18N.zh;
             if (!num) {
-                alert('请输入物流单号');
+                alert(t.msg_track_enter);
                 return;
             }
             resDiv.style.display = 'block';
-            resDiv.innerHTML = '<p>正在查询中，请稍候...</p>';
+            resDiv.innerHTML = '<p>' + t.msg_track_loading + '</p>';
             try {
                 var built = buildSpeedafEncryptedBody([num]);
                 var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
@@ -615,15 +812,16 @@
                     renderSpeedafResponse(raw, num, resDiv);
                 }
             } catch (e) {
-                resDiv.innerHTML = '<p>查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。</p>';
+                resDiv.innerHTML = '<p>' + (I18N[currentLang] || I18N.zh).msg_track_fail + '</p>';
             }
         }
         // 用真实 API 验证：请求 Speedaf 测试环境接口，用返回数据渲染
         async function runRealApiTest() {
             var resDiv = document.getElementById('trackResult');
             var testMailNo = '47234208672823';
+            var t = I18N[currentLang] || I18N.zh;
             resDiv.style.display = 'block';
-            resDiv.innerHTML = '<p>正在请求真实接口（测试环境）...</p>';
+            resDiv.innerHTML = '<p>' + t.msg_track_test_loading + '</p>';
             try {
                 var built = buildSpeedafEncryptedBody([testMailNo]);
                 var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
@@ -640,7 +838,7 @@
                     renderSpeedafResponse(raw, testMailNo, resDiv);
                 }
             } catch (e) {
-                resDiv.innerHTML = '<p>请求失败：' + (e.message || '网络或跨域错误') + '。若为 CORS 错误，需通过后端代理调用该接口。</p>';
+                resDiv.innerHTML = '<p>' + t.msg_track_test_fail + (e.message || '') + '</p>';
             }
         }
         // 联系表单：提交到 Formspree，由 Formspree 转发到您填写的邮箱
@@ -653,17 +851,19 @@
             var message = document.getElementById('message').value.trim();
             var btn = document.getElementById('contactSubmitBtn');
             var feedback = document.getElementById('contactFeedback');
+            var t = I18N[currentLang] || I18N.zh;
             if (!name || !email || !message) {
                 feedback.style.display = 'block';
                 feedback.style.color = '#c00';
-                feedback.textContent = '请填写姓名、邮箱和留言';
+                feedback.textContent = t.msg_contact_fill;
                 return;
             }
             btn.disabled = true;
             feedback.style.display = 'block';
             feedback.style.color = '#666';
-            feedback.textContent = '正在提交...';
+            feedback.textContent = t.msg_contact_submitting;
             try {
+                var subj = currentLang === 'zh' ? '【海凯讯航官网】新留言 - ' + name : '[HKXH] New message - ' + name;
                 var resp = await fetch(FORMSPREE_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -672,21 +872,21 @@
                         email: email,
                         phone: phone,
                         message: message,
-                        _subject: '【海凯讯航官网】新留言 - ' + name
+                        _subject: subj
                     })
                 });
                 var data = resp.ok ? await resp.json().catch(function() { return {}; }) : null;
                 if (resp.ok && (data && data.ok !== false)) {
                     feedback.style.color = 'var(--primary)';
-                    feedback.textContent = '提交成功！我们会尽快通过您留下的邮箱与您联系。';
+                    feedback.textContent = t.msg_contact_ok;
                     document.querySelector('.contact-form').reset();
                 } else {
                     feedback.style.color = '#c00';
-                    feedback.textContent = '提交失败，请稍后重试或直接致电/发邮件联系我们。';
+                    feedback.textContent = t.msg_contact_fail;
                 }
             } catch (err) {
                 feedback.style.color = '#c00';
-                feedback.textContent = '网络异常，请检查网络后重试。';
+                feedback.textContent = t.msg_contact_network;
             }
             btn.disabled = false;
         }
