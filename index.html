@@ -6,6 +6,7 @@
     <title>海凯讯航国际物流 | 专业跨境物流解决方案</title>
     <meta name="description" content="深圳市海凯讯航国际货运代理有限公司，专业跨境物流、国际快递、FBA头程、全球专线，安全快捷高效。">
     <meta name="keywords" content="海凯讯航,国际物流,跨境电商物流,FBA头程,国际快递">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.js"></script>
     <style>
         * {
             margin: 0;
@@ -395,7 +396,9 @@
                 <form class="track-form" onsubmit="trackPackage(event)">
                     <input type="text" id="trackingNumber" class="track-input" placeholder="请输入您的物流单号" required>
                     <button type="submit" class="btn btn-primary">立即查询</button>
+                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px" onclick="runRealApiTest()">用真实接口验证</button>
                 </form>
+                <p style="font-size:13px;color:#666;margin-top:8px">点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。</p>
                 <div id="trackResult" class="track-result"></div>
             </div>
         </div>
@@ -422,7 +425,8 @@
                         <label for="message">留言</label>
                         <textarea id="message" class="form-textarea" required></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary">提交留言</button>
+                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn">提交留言</button>
+                    <p id="contactFeedback" style="margin-top:12px;font-size:14px;display:none"></p>
                 </form>
                 <div class="contact-info-block">
                     <h3>联系方式</h3>
@@ -472,47 +476,219 @@
             const nav = document.getElementById('mainNav');
             nav.classList.toggle('active');
         }
-        // 物流查询
-const API_URL = 'https://hkxh-track-api-v2.vercel.app/api/track'; // 替换为你的真实接口地址
-async function trackPackage(event) {
-    event.preventDefault();
-    const num = document.getElementById('trackingNumber').value.trim();
-    const resDiv = document.getElementById('trackResult');
-    if (!num) {
-        alert('请输入物流单号');
-        return;
-    }
-    resDiv.style.display = 'block';
-    resDiv.innerHTML = '<p>正在查询中，请稍候...</p >';
-    try {
-        const resp = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ customNumber: num })
-        });
-        const data = await resp.json();
-        if (data.error) {
-            resDiv.innerHTML = `<p>${data.error}</p >`; // 现在会显示“未找到该单号信息”等友好提示
-        } else {
-            let html = `<h3>单号：${data.customNumber}</h3><p><strong>状态：</strong>${data.status}</p ><h4>物流轨迹：</h4>`;
-            if (data.tracks && data.tracks.length > 0) {
-                data.tracks.forEach(item => {
-                    html += `<div class="track-item"><div class="track-time">${item.time}</div><div class="track-desc">${item.desc}</div></div>`;
+        // 物流查询 - Speedaf 接口规范：MD5(timestamp+secretKey+data) 签名，Body 为 DES+CBC+Base64 加密
+        const SPEEDAF_APP_CODE = '11111111';
+        const SPEEDAF_SECRET_KEY = 'uYMGr8eU';
+        var DES_IV = [0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF];
+        function md5(str) {
+            function rotateLeft(l, n) { return (l << n) | (l >>> (32 - n)); }
+            function addUnsigned(x, y) {
+                var a = (x & 0x7fffffff) + (y & 0x7fffffff);
+                return (x >>> 31) + (y >>> 31) + (a >>> 31) ? (a | 0x80000000) : (a & 0x7fffffff);
+            }
+            function F(x, y, z) { return (x & y) | ((~x) & z); }
+            function G(x, y, z) { return (x & z) | (y & (~z)); }
+            function H(x, y, z) { return x ^ y ^ z; }
+            function I(x, y, z) { return y ^ (x | (~z)); }
+            function FF(a, b, c, d, x, s, ac) { a = addUnsigned(a, addUnsigned(addUnsigned(F(b, c, d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }
+            function GG(a, b, c, d, x, s, ac) { a = addUnsigned(a, addUnsigned(addUnsigned(G(b, c, d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }
+            function HH(a, b, c, d, x, s, ac) { a = addUnsigned(a, addUnsigned(addUnsigned(H(b, c, d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }
+            function II(a, b, c, d, x, s, ac) { a = addUnsigned(a, addUnsigned(addUnsigned(I(b, c, d), x), ac)); return addUnsigned(rotateLeft(a, s), b); }
+            function toWordArray(str) {
+                var l = str.length, words = [];
+                for (var i = 0; i < l; i++) words[i >> 2] |= (str.charCodeAt(i) & 0xff) << ((i % 4) * 8);
+                words[str.length >> 2] |= 0x80 << (((str.length % 4) * 8));
+                words[(((str.length + 8) - ((str.length + 8) % 64)) / 64 + 1) * 16 - 1] = str.length * 8;
+                return words;
+            }
+            function toHex(n) { var s = '', v; for (var j = 0; j <= 3; j++) { v = (n >>> (j * 8)) & 0xff; s += ('0' + v.toString(16)).slice(-2); } return s; }
+            var x = toWordArray(str), a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476, S11 = 7, S12 = 12, S13 = 17, S14 = 22, S21 = 5, S22 = 9, S23 = 14, S24 = 20, S31 = 4, S32 = 11, S33 = 16, S34 = 23, S41 = 6, S42 = 10, S43 = 15, S44 = 21;
+            for (var k = 0; k < x.length; k += 16) {
+                var AA = a, BB = b, CC = c, DD = d;
+                a = FF(a, b, c, d, x[k + 0], S11, 0xd76aa478); d = FF(d, a, b, c, x[k + 1], S12, 0xe8c7b756); c = FF(c, d, a, b, x[k + 2], S13, 0x242070db); b = FF(b, c, d, a, x[k + 3], S14, 0xc1bdceee);
+                a = FF(a, b, c, d, x[k + 4], S11, 0xf57c0faf); d = FF(d, a, b, c, x[k + 5], S12, 0x4787c62a); c = FF(c, d, a, b, x[k + 6], S13, 0xa8304613); b = FF(b, c, d, a, x[k + 7], S14, 0xfd469501);
+                a = FF(a, b, c, d, x[k + 8], S11, 0x698098d8); d = FF(d, a, b, c, x[k + 9], S12, 0x8b44f7af); c = FF(c, d, a, b, x[k + 10], S13, 0xffff5bb1); b = FF(b, c, d, a, x[k + 11], S14, 0x895cd7be);
+                a = FF(a, b, c, d, x[k + 12], S11, 0x6b901122); d = FF(d, a, b, c, x[k + 13], S12, 0xfd987193); c = FF(c, d, a, b, x[k + 14], S13, 0xa679438e); b = FF(b, c, d, a, x[k + 15], S14, 0x49b40821);
+                a = GG(a, b, c, d, x[k + 1], S21, 0xf61e2562); d = GG(d, a, b, c, x[k + 6], S22, 0xc040b340); c = GG(c, d, a, b, x[k + 11], S23, 0x265e5a51); b = GG(b, c, d, a, x[k + 0], S24, 0xe9b6c7aa);
+                a = GG(a, b, c, d, x[k + 5], S21, 0xd62f105d); d = GG(d, a, b, c, x[k + 10], S22, 0x2441453); c = GG(c, d, a, b, x[k + 15], S23, 0xd8a1e681); b = GG(b, c, d, a, x[k + 4], S24, 0xe7d3fbc8);
+                a = GG(a, b, c, d, x[k + 9], S21, 0x21e1cde6); d = GG(d, a, b, c, x[k + 14], S22, 0xc33707d6); c = GG(c, d, a, b, x[k + 3], S23, 0xf4d50d87); b = GG(b, c, d, a, x[k + 8], S24, 0x455a14ed);
+                a = GG(a, b, c, d, x[k + 13], S21, 0xa9e3e905); d = GG(d, a, b, c, x[k + 2], S22, 0xfcefa3f8); c = GG(c, d, a, b, x[k + 7], S23, 0x676f02d9); b = GG(b, c, d, a, x[k + 12], S24, 0x8d2a4c8a);
+                a = HH(a, b, c, d, x[k + 5], S31, 0xfffa3942); d = HH(d, a, b, c, x[k + 8], S32, 0x8771f681); c = HH(c, d, a, b, x[k + 11], S33, 0x6d9d6122); b = HH(b, c, d, a, x[k + 14], S34, 0xfde5380c);
+                a = HH(a, b, c, d, x[k + 1], S31, 0xa4beea44); d = HH(d, a, b, c, x[k + 4], S32, 0x4bdecfa9); c = HH(c, d, a, b, x[k + 7], S33, 0xf6bb4b60); b = HH(b, c, d, a, x[k + 10], S34, 0xbebfbc70);
+                a = HH(a, b, c, d, x[k + 13], S31, 0x289b7ec6); d = HH(d, a, b, c, x[k + 0], S32, 0xeaa127fa); c = HH(c, d, a, b, x[k + 3], S33, 0xd4ef3085); b = HH(b, c, d, a, x[k + 6], S34, 0x4881d05);
+                a = HH(a, b, c, d, x[k + 9], S31, 0xd9d4d039); d = HH(d, a, b, c, x[k + 12], S32, 0xe6db99e5); c = HH(c, d, a, b, x[k + 15], S33, 0x1fa27cf8); b = HH(b, c, d, a, x[k + 2], S34, 0xc4ac5665);
+                a = II(a, b, c, d, x[k + 0], S41, 0xf4292244); d = II(d, a, b, c, x[k + 7], S42, 0x432aff97); c = II(c, d, a, b, x[k + 14], S43, 0xab9423a7); b = II(b, c, d, a, x[k + 5], S44, 0xfc93a039);
+                a = II(a, b, c, d, x[k + 12], S41, 0x655b59c3); d = II(d, a, b, c, x[k + 3], S42, 0x8f0ccc92); c = II(c, d, a, b, x[k + 10], S43, 0xffeff47d); b = II(b, c, d, a, x[k + 1], S44, 0x85845dd1);
+                a = II(a, b, c, d, x[k + 8], S41, 0x6fa87e4f); d = II(d, a, b, c, x[k + 15], S42, 0xfe2ce6e0); c = II(c, d, a, b, x[k + 6], S43, 0xa3014314); b = II(b, c, d, a, x[k + 13], S44, 0x4e0811a1);
+                a = II(a, b, c, d, x[k + 4], S41, 0xf7537e82); d = II(d, a, b, c, x[k + 11], S42, 0xbd3af235); c = II(c, d, a, b, x[k + 2], S43, 0x2ad7d2bb); b = II(b, c, d, a, x[k + 9], S44, 0xeb86d391);
+                a = addUnsigned(a, AA); b = addUnsigned(b, BB); c = addUnsigned(c, CC); d = addUnsigned(d, DD);
+            }
+            return (toHex(a) + toHex(b) + toHex(c) + toHex(d)).toLowerCase();
+        }
+        function getSpeedafTrackUrl(timestampMs) {
+            return 'https://uat-api.speedaf.com/open-api/express/track/query?appCode=' + encodeURIComponent(SPEEDAF_APP_CODE) + '&timestamp=' + timestampMs;
+        }
+        function speedafIv() {
+            return CryptoJS.lib.WordArray.create([0x12345678, 0x90ABCDEF]);
+        }
+        function speedafDesEncrypt(plainText, secretKey) {
+            var key = CryptoJS.enc.Utf8.parse(secretKey);
+            var encrypted = CryptoJS.DES.encrypt(plainText, key, { iv: speedafIv(), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+            return encrypted.toString();
+        }
+        function speedafDesDecrypt(base64Cipher, secretKey) {
+            var key = CryptoJS.enc.Utf8.parse(secretKey);
+            var dec = CryptoJS.DES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(base64Cipher) }, key, { iv: speedafIv(), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+            return dec.toString(CryptoJS.enc.Utf8);
+        }
+        function buildSpeedafEncryptedBody(mailNoList) {
+            var timestampMs = Date.now();
+            var businessData = { mailNoList: mailNoList };
+            var dataStr = JSON.stringify(businessData);
+            var signStr = String(timestampMs) + SPEEDAF_SECRET_KEY + dataStr;
+            var sign = (typeof CryptoJS !== 'undefined' && CryptoJS.MD5)
+                ? CryptoJS.MD5(signStr).toString(CryptoJS.enc.Hex).toLowerCase()
+                : md5(signStr);
+            var bodyObj = { data: businessData, sign: sign };
+            var bodyStr = JSON.stringify(bodyObj);
+            return { body: speedafDesEncrypt(bodyStr, SPEEDAF_SECRET_KEY), timestampMs: timestampMs };
+        }
+        // 用接口返回的 raw 数据渲染结果（直接数组或 { success, data, error }）
+        function renderSpeedafResponse(raw, inputNumber, resDiv) {
+            let data = raw;
+            if (raw && typeof raw.success === 'boolean' && !raw.success) {
+                var msg = (raw.error && raw.error.message) ? raw.error.message : '未找到该单号信息';
+                var code = (raw.error && raw.error.code) ? raw.error.code : '';
+                var hint = '';
+                if (msg.toLowerCase().indexOf('timeout') !== -1) {
+                    hint = '<p style="margin-top:12px;font-size:13px;color:#666">可能原因：① 测试环境暂无该单号数据，接口查询超时；② 签名(sign)算法与文档不一致导致服务端处理异常。建议向 Speedaf 确认：测试环境是否有可用测试单号、以及正确的签名规则。</p>';
+                }
+                resDiv.innerHTML = '<p>' + (msg.replace(/</g, '&lt;')) + (code ? ' <span style="color:#999">(' + code + ')</span>' : '') + '</p>' + hint;
+                return;
+            }
+            if (raw && raw.data !== undefined) data = raw.data;
+            if (!Array.isArray(data) || data.length === 0) {
+                resDiv.innerHTML = '<p>未找到该单号信息</p>';
+                return;
+            }
+            var item = data[0];
+            var mailNo = item.mailNo || inputNumber;
+            var tracks = item.tracks || [];
+            var status = tracks.length > 0 ? tracks[0].actionName : '暂无状态';
+            var html = '<h3>单号：' + mailNo + '</h3><p><strong>状态：</strong>' + status + '</p><h4>物流轨迹：</h4>';
+            if (tracks.length > 0) {
+                tracks.forEach(function(t) {
+                    var desc = t.message || t.msgEng || t.msgLoc || t.actionName || '';
+                    var block = '<div class="track-item"><div class="track-time">' + (t.time || '') + '</div><div class="track-desc">' + (desc ? desc.replace(/</g, '&lt;') : '') + '</div>';
+                    if (t.pictureUrl) block += ' <a href="' + t.pictureUrl + '" target="_blank" rel="noopener">查看图片</a>';
+                    block += '</div>';
+                    html += block;
                 });
             } else {
-                html += '<p>暂无轨迹信息</p >';
+                html += '<p>暂无轨迹信息</p>';
             }
             resDiv.innerHTML = html;
         }
-    } catch (e) {
-        resDiv.innerHTML = '<p>查询失败，请稍后重试</p >';
-    }
-}
-        // 联系表单
-        function submitContact(e) {
+        async function trackPackage(event) {
+            event.preventDefault();
+            var num = document.getElementById('trackingNumber').value.trim();
+            var resDiv = document.getElementById('trackResult');
+            if (!num) {
+                alert('请输入物流单号');
+                return;
+            }
+            resDiv.style.display = 'block';
+            resDiv.innerHTML = '<p>正在查询中，请稍候...</p>';
+            try {
+                var built = buildSpeedafEncryptedBody([num]);
+                var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: built.body
+                });
+                var raw = await resp.json();
+                if (raw && raw.success === true && typeof raw.data === 'string') {
+                    var decrypted = speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY);
+                    var parsed = JSON.parse(decrypted);
+                    renderSpeedafResponse(parsed, num, resDiv);
+                } else {
+                    renderSpeedafResponse(raw, num, resDiv);
+                }
+            } catch (e) {
+                resDiv.innerHTML = '<p>查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。</p>';
+            }
+        }
+        // 用真实 API 验证：请求 Speedaf 测试环境接口，用返回数据渲染
+        async function runRealApiTest() {
+            var resDiv = document.getElementById('trackResult');
+            var testMailNo = '47234208672823';
+            resDiv.style.display = 'block';
+            resDiv.innerHTML = '<p>正在请求真实接口（测试环境）...</p>';
+            try {
+                var built = buildSpeedafEncryptedBody([testMailNo]);
+                var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: built.body
+                });
+                var raw = await resp.json();
+                if (raw && raw.success === true && typeof raw.data === 'string') {
+                    var decrypted = speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY);
+                    var parsed = JSON.parse(decrypted);
+                    renderSpeedafResponse(parsed, testMailNo, resDiv);
+                } else {
+                    renderSpeedafResponse(raw, testMailNo, resDiv);
+                }
+            } catch (e) {
+                resDiv.innerHTML = '<p>请求失败：' + (e.message || '网络或跨域错误') + '。若为 CORS 错误，需通过后端代理调用该接口。</p>';
+            }
+        }
+        // 联系表单：提交到 Formspree，由 Formspree 转发到您填写的邮箱
+        var FORMSPREE_ENDPOINT = 'https://formspree.io/f/xojklyva';
+        async function submitContact(e) {
             e.preventDefault();
-            alert('提交成功！我们会尽快与您联系。');
-            document.querySelector('.contact-form').reset();
+            var name = document.getElementById('name').value.trim();
+            var email = document.getElementById('email').value.trim();
+            var phone = document.getElementById('phone').value.trim();
+            var message = document.getElementById('message').value.trim();
+            var btn = document.getElementById('contactSubmitBtn');
+            var feedback = document.getElementById('contactFeedback');
+            if (!name || !email || !message) {
+                feedback.style.display = 'block';
+                feedback.style.color = '#c00';
+                feedback.textContent = '请填写姓名、邮箱和留言';
+                return;
+            }
+            btn.disabled = true;
+            feedback.style.display = 'block';
+            feedback.style.color = '#666';
+            feedback.textContent = '正在提交...';
+            try {
+                var resp = await fetch(FORMSPREE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        email: email,
+                        phone: phone,
+                        message: message,
+                        _subject: '【海凯讯航官网】新留言 - ' + name
+                    })
+                });
+                var data = resp.ok ? await resp.json().catch(function() { return {}; }) : null;
+                if (resp.ok && (data && data.ok !== false)) {
+                    feedback.style.color = 'var(--primary)';
+                    feedback.textContent = '提交成功！我们会尽快通过您留下的邮箱与您联系。';
+                    document.querySelector('.contact-form').reset();
+                } else {
+                    feedback.style.color = '#c00';
+                    feedback.textContent = '提交失败，请稍后重试或直接致电/发邮件联系我们。';
+                }
+            } catch (err) {
+                feedback.style.color = '#c00';
+                feedback.textContent = '网络异常，请检查网络后重试。';
+            }
+            btn.disabled = false;
         }
     </script>
 </body>
