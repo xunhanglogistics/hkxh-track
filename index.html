@@ -751,8 +751,10 @@
             nav.classList.toggle('active');
         }
         // 物流查询 - Speedaf 接口规范：MD5(timestamp+secretKey+data) 签名，Body 为 DES+CBC+Base64 加密
-        const SPEEDAF_APP_CODE = '11111111';
-        const SPEEDAF_SECRET_KEY = 'uYMGr8eU';
+        const SPEEDAF_APP_CODE = 'CN000796';
+        const SPEEDAF_SECRET_KEY = 'Ty2pi72K';
+        const SPEEDAF_CUSTOMER_CODE = 'CN000796';
+        const SPEEDAF_PLATFORM_SOURCE = 'HKXH';
         var DES_IV = [0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF];
         function md5(str) {
             function rotateLeft(l, n) { return (l << n) | (l >>> (32 - n)); }
@@ -800,7 +802,7 @@
             return (toHex(a) + toHex(b) + toHex(c) + toHex(d)).toLowerCase();
         }
         function getSpeedafTrackUrl(timestampMs) {
-            return 'https://uat-api.speedaf.com/open-api/express/track/query?appCode=' + encodeURIComponent(SPEEDAF_APP_CODE) + '&timestamp=' + timestampMs;
+            return 'https://api.speedaf.com/open-api/express/track/query?appCode=' + encodeURIComponent(SPEEDAF_APP_CODE) + '&timestamp=' + timestampMs;
         }
         function speedafIv() {
             return CryptoJS.lib.WordArray.create([0x12345678, 0x90ABCDEF]);
@@ -817,7 +819,7 @@
         }
         function buildSpeedafEncryptedBody(mailNoList) {
             var timestampMs = Date.now();
-            var businessData = { mailNoList: mailNoList };
+            var businessData = { mailNoList: mailNoList, customerCode: SPEEDAF_CUSTOMER_CODE, platformSource: SPEEDAF_PLATFORM_SOURCE };
             var dataStr = JSON.stringify(businessData);
             var signStr = String(timestampMs) + SPEEDAF_SECRET_KEY + dataStr;
             var sign = (typeof CryptoJS !== 'undefined' && CryptoJS.MD5)
@@ -867,6 +869,7 @@
             }
             resDiv.innerHTML = html;
         }
+        var TRACK_PROXY = '/api/track';
         async function trackPackage(event) {
             event.preventDefault();
             var num = document.getElementById('trackingNumber').value.trim();
@@ -879,22 +882,30 @@
             resDiv.style.display = 'block';
             resDiv.innerHTML = '<p>' + t.msg_track_loading + '</p>';
             try {
-                var built = buildSpeedafEncryptedBody([num]);
-                var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: built.body
-                });
-                var raw = await resp.json();
-                if (raw && raw.success === true && typeof raw.data === 'string') {
-                    var decrypted = speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY);
-                    var parsed = JSON.parse(decrypted);
-                    renderSpeedafResponse(parsed, num, resDiv);
-                } else {
-                    renderSpeedafResponse(raw, num, resDiv);
+                var raw;
+                try {
+                    var proxyResp = await fetch(TRACK_PROXY, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mailNoList: [num] })
+                    });
+                    raw = await proxyResp.json();
+                } catch (proxyErr) {
+                    var built = buildSpeedafEncryptedBody([num]);
+                    var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: built.body
+                    });
+                    raw = await resp.json();
+                    if (raw && raw.success === true && typeof raw.data === 'string') {
+                        var decrypted = speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY);
+                        raw = JSON.parse(decrypted);
+                    }
                 }
+                renderSpeedafResponse(raw, num, resDiv);
             } catch (e) {
-                resDiv.innerHTML = '<p>' + (I18N[currentLang] || I18N.zh).msg_track_fail + '</p>';
+                resDiv.innerHTML = '<p>' + t.msg_track_fail + '</p>';
             }
         }
         // 用真实 API 验证：请求 Speedaf 测试环境接口，用返回数据渲染
@@ -905,20 +916,27 @@
             resDiv.style.display = 'block';
             resDiv.innerHTML = '<p>' + t.msg_track_test_loading + '</p>';
             try {
-                var built = buildSpeedafEncryptedBody([testMailNo]);
-                var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: built.body
-                });
-                var raw = await resp.json();
-                if (raw && raw.success === true && typeof raw.data === 'string') {
-                    var decrypted = speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY);
-                    var parsed = JSON.parse(decrypted);
-                    renderSpeedafResponse(parsed, testMailNo, resDiv);
-                } else {
-                    renderSpeedafResponse(raw, testMailNo, resDiv);
+                var raw;
+                try {
+                    var proxyResp = await fetch(TRACK_PROXY, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mailNoList: [testMailNo] })
+                    });
+                    raw = await proxyResp.json();
+                } catch (proxyErr) {
+                    var built = buildSpeedafEncryptedBody([testMailNo]);
+                    var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: built.body
+                    });
+                    raw = await resp.json();
+                    if (raw && raw.success === true && typeof raw.data === 'string') {
+                        raw = JSON.parse(speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY));
+                    }
                 }
+                renderSpeedafResponse(raw, testMailNo, resDiv);
             } catch (e) {
                 resDiv.innerHTML = '<p>' + t.msg_track_test_fail + (e.message || '') + '</p>';
             }
