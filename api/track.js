@@ -4,13 +4,16 @@
  */
 const crypto = require('crypto');
 const dns = require('dns');
+const https = require('https');
+const { URL } = require('url');
 const CryptoJS = require('crypto-js');
 
 /**
- * 若 Vercel 日志出现：fetch failed | cause: getaddrinfo ENOTFOUND api.speedaf.com
- * 说明美国机房 DNS 解析不到该域名。可在 Vercel 环境变量设置（逗号分隔）：
- * TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114,8.8.8.8
- * 仍不行则改用腾讯云 SCF（国内解析通常正常）。
+ * 若 Vercel 日志出现 ENOTFOUND api.speedaf.com：
+ * 1) 在环境变量设置 TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114,8.8.8.8（逗号分隔）
+ * 2) 注意：Node 自带 fetch(undici) 常忽略 dns.setServers，故本文件用 dns.promises.lookup + https.request，
+ *    才会真正按你指定的 DNS 解析。
+ * 仍不行则改用腾讯云 SCF。
  */
 if (process.env.TRACK_DNS_SERVERS) {
   const list = process.env.TRACK_DNS_SERVERS.split(',').map((s) => s.trim()).filter(Boolean);
@@ -79,20 +82,54 @@ function serializeErrorChain(err) {
   return parts.join(' | ');
 }
 
+/**
+ * 使用 Node dns（尊重 TRACK_DNS_SERVERS）解析后再 HTTPS POST，避免 undici fetch 不走 setServers。
+ */
+function httpsPostSpeedaf(urlString, plainBody) {
+  const u = new URL(urlString);
+  const bodyBuf = Buffer.from(plainBody, 'utf8');
+  return dns.promises
+    .lookup(u.hostname, { family: 4 })
+    .then(({ address }) => {
+      return new Promise((resolve, reject) => {
+        const opts = {
+          host: address,
+          port: 443,
+          path: `${u.pathname}${u.search}`,
+          method: 'POST',
+          servername: u.hostname,
+          headers: {
+            Host: u.hostname,
+            'Content-Type': 'text/plain',
+            'Content-Length': String(bodyBuf.length),
+          },
+        };
+        const req = https.request(opts, (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            resolve({
+              status: res.statusCode || 0,
+              text: Buffer.concat(chunks).toString('utf8'),
+            });
+          });
+        });
+        req.on('error', reject);
+        req.write(bodyBuf);
+        req.end();
+      });
+    });
+}
+
 async function callSpeedaf(mailNoList) {
   const { encrypted, timestampMs } = buildBody(mailNoList);
   const url = `${SPEEDAF_URL}?appCode=${encodeURIComponent(APP_CODE)}&timestamp=${timestampMs}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: encrypted,
-  });
-  const text = await res.text();
+  const { status, text } = await httpsPostSpeedaf(url, encrypted);
   let raw;
   try {
     raw = text ? JSON.parse(text) : {};
   } catch (parseErr) {
-    throw new Error(`Speedaf non-JSON (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Speedaf non-JSON (${status}): ${text.slice(0, 200)}`);
   }
   if (raw && raw.success === true && typeof raw.data === 'string') {
     const decrypted = desDecrypt(raw.data, SECRET_KEY);
