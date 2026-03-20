@@ -21,7 +21,7 @@
 
 1. 打开 [云函数 SCF](https://console.cloud.tencent.com/scf) → **新建** → 从头开始。
 2. **运行环境**：Node.js 18 或 16（需支持原生 `fetch`，Node 18+ 自带）。
-3. **提交方法**：本目录 `index.js` 内容复制到「函数代码」里（或打包 zip 上传）。
+3. **提交方法**：本函数依赖 **`crypto-js`**（DES 加解密）。请在 `tencent-scf` 目录执行 `npm install` 后，将 **`index.js` + `node_modules`** 一并打成 zip 上传；或在控制台用「在线依赖安装」安装 `crypto-js`。
 4. **高级配置 → 环境变量**（建议填写，勿依赖代码默认值）：
    - `SPEEDAF_APP_CODE`
    - `SPEEDAF_SECRET_KEY`

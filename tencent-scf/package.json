@@ -1,0 +1,7 @@
+{
+  "name": "hkxh-track-scf",
+  "private": true,
+  "dependencies": {
+    "crypto-js": "^4.2.0"
+  }
+}

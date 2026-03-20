@@ -3,8 +3,10 @@
  * 前端 POST /api/track，body: { mailNoList: ["单号"] } 或 { trackingNumber: "单号" }
  */
 const crypto = require('crypto');
+const CryptoJS = require('crypto-js');
 
-const DES_IV = Buffer.from([0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef]);
+/** 与 Speedaf 文档一致；勿用 Node crypto DES（Node 18+/OpenSSL 3 默认不支持 des-cbc） */
+const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 const CUSTOMER_CODE = process.env.SPEEDAF_CUSTOMER_CODE || 'CN000796';
@@ -16,19 +18,25 @@ function md5(str) {
 }
 
 function desEncrypt(plainText, secretKey) {
-  const key = Buffer.from(secretKey, 'utf8').slice(0, 8);
-  const cipher = crypto.createCipheriv('des-cbc', key, DES_IV);
-  cipher.setAutoPadding(true);
-  const enc = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
-  return enc.toString('base64');
+  const key = CryptoJS.enc.Utf8.parse(String(secretKey).slice(0, 8));
+  const iv = CryptoJS.enc.Hex.parse(DES_IV_HEX);
+  const encrypted = CryptoJS.DES.encrypt(plainText, key, {
+    iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7,
+  });
+  return encrypted.ciphertext.toString(CryptoJS.enc.Base64);
 }
 
 function desDecrypt(base64Cipher, secretKey) {
-  const key = Buffer.from(secretKey, 'utf8').slice(0, 8);
-  const buf = Buffer.from(base64Cipher, 'base64');
-  const decipher = crypto.createDecipheriv('des-cbc', key, DES_IV);
-  decipher.setAutoPadding(true);
-  return Buffer.concat([decipher.update(buf), decipher.final()]).toString('utf8');
+  const key = CryptoJS.enc.Utf8.parse(String(secretKey).slice(0, 8));
+  const iv = CryptoJS.enc.Hex.parse(DES_IV_HEX);
+  const decrypted = CryptoJS.DES.decrypt(
+    { ciphertext: CryptoJS.enc.Base64.parse(base64Cipher) },
+    key,
+    { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+  );
+  return decrypted.toString(CryptoJS.enc.Utf8);
 }
 
 function buildBody(mailNoList) {
@@ -70,6 +78,28 @@ function corsHeaders() {
   };
 }
 
+/** Vercel 上 body 可能是 object / string / Buffer，统一解析为对象 */
+function parseJsonBody(req) {
+  const b = req.body;
+  if (b == null || b === '') return {};
+  if (Buffer.isBuffer(b)) {
+    try {
+      return JSON.parse(b.toString('utf8'));
+    } catch (_) {
+      return {};
+    }
+  }
+  if (typeof b === 'string') {
+    try {
+      return JSON.parse(b);
+    } catch (_) {
+      return {};
+    }
+  }
+  if (typeof b === 'object') return b;
+  return {};
+}
+
 module.exports = async (req, res) => {
   Object.entries(corsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
   if (req.method === 'OPTIONS') {
@@ -100,7 +130,7 @@ module.exports = async (req, res) => {
   }
   let mailNoList = [];
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const body = parseJsonBody(req);
     if (Array.isArray(body.mailNoList)) {
       mailNoList = body.mailNoList.filter(Boolean);
     } else if (body.trackingNumber) {

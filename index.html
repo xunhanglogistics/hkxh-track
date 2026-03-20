@@ -636,7 +636,10 @@
                 msg_track_enter: '请输入物流单号',
                 msg_track_loading: '正在查询中，请稍候...',
                 msg_track_fail: '查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。',
-                msg_track_proxy_unavailable: '无法连接查询服务（海外接口可能被当前网络限制）。请将物流查询代理部署到国内可访问的服务器（如阿里云/腾讯云函数），或在能访问 Vercel 的网络下重试。',
+                msg_track_proxy_unavailable: '无法完成查询请求（常见于：当前网络拦截跨境 HTTPS POST、DNS 污染或防火墙）。若地址栏能打开代理链接但此处失败，多为运营商对 POST 的限制。请将代理部署到国内可访问节点（见项目内 tencent-scf），或换网络/开 VPN 后再试。',
+                msg_track_proxy_http: '代理已响应但返回错误状态，详情如下（可截图给技术人员）：',
+                msg_track_proxy_bad_json: '代理返回内容无法解析为 JSON：',
+                msg_track_proxy_network_hint: '底层错误信息',
                 msg_track_no_result: '未找到该单号信息',
                 msg_track_no_status: '暂无状态',
                 msg_track_trail: '物流轨迹：',
@@ -705,7 +708,10 @@
                 msg_track_enter: 'Please enter tracking number',
                 msg_track_loading: 'Searching...',
                 msg_track_fail: 'Query failed. If you see a CORS error, use a backend proxy.',
-                msg_track_proxy_unavailable: 'Cannot reach the tracking service (overseas host may be blocked on your network). Deploy the proxy on a server reachable in your region (e.g. Aliyun/Tencent Cloud), or try again from a network that can reach Vercel.',
+                msg_track_proxy_unavailable: 'Could not complete the request (often: network blocks cross-border HTTPS POST, DNS, or firewall). If the proxy URL opens in the tab but query fails here, your ISP may block POST. Deploy the proxy in-region (see tencent-scf in the repo) or try another network/VPN.',
+                msg_track_proxy_http: 'The proxy responded with an error. Details below (you can send a screenshot):',
+                msg_track_proxy_bad_json: 'The proxy response is not valid JSON:',
+                msg_track_proxy_network_hint: 'Error detail',
                 msg_track_no_result: 'No tracking information found',
                 msg_track_no_status: 'No status',
                 msg_track_trail: 'Tracking:',
@@ -873,6 +879,18 @@
         }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
+        function escapeHtmlTrack(s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        async function fetchTrackProxyPost(payload) {
+            var r = await fetch(TRACK_PROXY, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            var text = await r.text();
+            return { ok: r.ok, status: r.status, text: text };
+        }
         async function trackPackage(event) {
             event.preventDefault();
             var num = document.getElementById('trackingNumber').value.trim();
@@ -887,19 +905,24 @@
             try {
                 var raw;
                 var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
-                try {
-                    var proxyResp = await fetch(TRACK_PROXY, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailNoList: [num] })
-                    });
-                    if (!proxyResp.ok) throw new Error('proxy ' + proxyResp.status);
-                    raw = await proxyResp.json();
-                } catch (proxyErr) {
-                    if (useRemoteProxy) {
-                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
+                if (useRemoteProxy) {
+                    try {
+                        var pr = await fetchTrackProxyPost({ mailNoList: [num] });
+                        if (!pr.ok) {
+                            resDiv.innerHTML = '<p><strong>HTTP ' + pr.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px;word-break:break-all">' + escapeHtmlTrack(pr.text) + '</pre><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
+                            return;
+                        }
+                        try {
+                            raw = JSON.parse(pr.text);
+                        } catch (jsonErr) {
+                            resDiv.innerHTML = '<p>' + t.msg_track_proxy_bad_json + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px">' + escapeHtmlTrack(pr.text.slice(0, 1200)) + '</pre>';
+                            return;
+                        }
+                    } catch (netErr) {
+                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p><p style="margin-top:10px;font-size:13px;color:#444">' + t.msg_track_proxy_network_hint + ': <code>' + escapeHtmlTrack(netErr.message) + '</code></p><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
                         return;
                     }
+                } else {
                     var built = buildSpeedafEncryptedBody([num]);
                     var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
                         method: 'POST',
@@ -927,26 +950,31 @@
             try {
                 var raw;
                 var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
-                try {
-                    var proxyResp = await fetch(TRACK_PROXY, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailNoList: [testMailNo] })
-                    });
-                    if (!proxyResp.ok) throw new Error('proxy ' + proxyResp.status);
-                    raw = await proxyResp.json();
-                } catch (proxyErr) {
-                    if (useRemoteProxy) {
-                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p>';
+                if (useRemoteProxy) {
+                    try {
+                        var pr2 = await fetchTrackProxyPost({ mailNoList: [testMailNo] });
+                        if (!pr2.ok) {
+                            resDiv.innerHTML = '<p><strong>HTTP ' + pr2.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px">' + escapeHtmlTrack(pr2.text) + '</pre>';
+                            return;
+                        }
+                        try {
+                            raw = JSON.parse(pr2.text);
+                        } catch (jsonErr2) {
+                            resDiv.innerHTML = '<p>' + t.msg_track_proxy_bad_json + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px">' + escapeHtmlTrack(pr2.text.slice(0, 1200)) + '</pre>';
+                            return;
+                        }
+                    } catch (netErr2) {
+                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p><p style="margin-top:8px;font-size:13px"><code>' + escapeHtmlTrack(netErr2.message) + '</code></p>';
                         return;
                     }
-                    var built = buildSpeedafEncryptedBody([testMailNo]);
-                    var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
+                } else {
+                    var built2 = buildSpeedafEncryptedBody([testMailNo]);
+                    var resp2 = await fetch(getSpeedafTrackUrl(built2.timestampMs), {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain' },
-                        body: built.body
+                        body: built2.body
                     });
-                    raw = await resp.json();
+                    raw = await resp2.json();
                     if (raw && raw.success === true && typeof raw.data === 'string') {
                         raw = JSON.parse(speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY));
                     }
