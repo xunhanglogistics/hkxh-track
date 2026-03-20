@@ -23,8 +23,6 @@ if (process.env.TRACK_DNS_SERVERS) {
 const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
-const CUSTOMER_CODE = process.env.SPEEDAF_CUSTOMER_CODE || 'CN000796';
-const PLATFORM_SOURCE = process.env.SPEEDAF_PLATFORM_SOURCE || 'HKXH';
 /** 正式环境见文档：https://apis.speedaf.com/doc/zh-cn/track_query.html */
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
@@ -54,13 +52,10 @@ function desDecrypt(base64Cipher, secretKey) {
   return decrypted.toString(CryptoJS.enc.Utf8);
 }
 
+/** 轨迹查询 data 仅含 mailNoList，见 https://apis.speedaf.com/doc/zh-cn/ 加签示例，否则 signature error 60004 */
 function buildBody(mailNoList) {
   const timestampMs = Date.now();
-  const businessData = {
-    mailNoList,
-    customerCode: CUSTOMER_CODE,
-    platformSource: PLATFORM_SOURCE,
-  };
+  const businessData = { mailNoList };
   const dataStr = JSON.stringify(businessData);
   const sign = md5(String(timestampMs) + SECRET_KEY + dataStr);
   const bodyObj = { data: businessData, sign };

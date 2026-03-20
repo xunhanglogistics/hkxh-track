@@ -5,7 +5,7 @@
  * 前端 TRACK_PROXY = 控制台给出的完整 HTTPS 地址（通常无 /api/track 路径）。
  *
  * 环境变量（函数配置 → 环境变量）：
- * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY, SPEEDAF_CUSTOMER_CODE, SPEEDAF_PLATFORM_SOURCE
+ * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（轨迹查询签名的 data 仅需 mailNoList，勿在 data 里加 customerCode）
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
@@ -13,8 +13,6 @@ const CryptoJS = require('crypto-js');
 const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
-const CUSTOMER_CODE = process.env.SPEEDAF_CUSTOMER_CODE || 'CN000796';
-const PLATFORM_SOURCE = process.env.SPEEDAF_PLATFORM_SOURCE || 'HKXH';
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
 function md5(str) {
@@ -43,13 +41,13 @@ function desDecrypt(base64Cipher, secretKey) {
   return decrypted.toString(CryptoJS.enc.Utf8);
 }
 
+/**
+ * 轨迹实时查询：官方文档要求 data 仅为 { mailNoList: [...] }，
+ * sign = md5(timestamp + secretKey + JSON.stringify(data))，勿加 customerCode/platformSource，否则 60004
+ */
 function buildBody(mailNoList) {
   const timestampMs = Date.now();
-  const businessData = {
-    mailNoList,
-    customerCode: CUSTOMER_CODE,
-    platformSource: PLATFORM_SOURCE,
-  };
+  const businessData = { mailNoList };
   const dataStr = JSON.stringify(businessData);
   const sign = md5(String(timestampMs) + SECRET_KEY + dataStr);
   const bodyObj = { data: businessData, sign };
