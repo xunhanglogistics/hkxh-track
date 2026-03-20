@@ -499,11 +499,7 @@
                     <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
                         placeholder="请输入您的物流单号" required>
                     <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
-                    <button type="button" class="btn" style="background:#0d9488;color:#fff;margin-left:8px"
-                        data-i18n="track_btn_test" onclick="runRealApiTest()">用真实接口验证</button>
                 </form>
-                <p style="font-size:13px;color:#666;margin-top:8px" data-i18n="track_hint">点击「用真实接口验证」将使用测试环境参数请求
-                    Speedaf 接口，用返回的真实数据验证页面展示。</p>
                 <div id="trackResult" class="track-result"></div>
             </div>
         </div>
@@ -605,8 +601,6 @@
                 track_subtitle: '输入您的单号，一键查询最新物流状态',
                 track_placeholder: '请输入您的物流单号',
                 track_btn: '立即查询',
-                track_btn_test: '用真实接口验证',
-                track_hint: '点击「用真实接口验证」将使用测试环境参数请求 Speedaf 接口，用返回的真实数据验证页面展示。',
                 contact_title: '联系我们',
                 contact_subtitle: '专业团队随时为您提供支持与服务',
                 contact_name: '姓名',
@@ -645,8 +639,6 @@
                 msg_track_trail: '物流轨迹：',
                 msg_track_no_trail: '暂无轨迹信息',
                 msg_track_view_pic: '查看图片',
-                msg_track_test_loading: '正在请求真实接口（测试环境）...',
-                msg_track_test_fail: '请求失败：',
                 msg_contact_fill: '请填写姓名、邮箱和留言',
                 msg_contact_submitting: '正在提交...',
                 msg_contact_ok: '提交成功！我们会尽快通过您留下的邮箱与您联系。',
@@ -677,8 +669,6 @@
                 track_subtitle: 'Enter your tracking number to see the latest status',
                 track_placeholder: 'Enter tracking number',
                 track_btn: 'Track',
-                track_btn_test: 'Test with real API',
-                track_hint: 'Click "Test with real API" to request Speedaf test environment and verify the display with real data.',
                 contact_title: 'Contact Us',
                 contact_subtitle: 'Our team is ready to support you',
                 contact_name: 'Name',
@@ -717,8 +707,6 @@
                 msg_track_trail: 'Tracking:',
                 msg_track_no_trail: 'No tracking details',
                 msg_track_view_pic: 'View image',
-                msg_track_test_loading: 'Requesting real API (test env)...',
-                msg_track_test_fail: 'Request failed: ',
                 msg_contact_fill: 'Please fill in name, email and message',
                 msg_contact_submitting: 'Submitting...',
                 msg_contact_ok: 'Submitted! We will contact you via your email soon.',
@@ -940,50 +928,6 @@
                 renderSpeedafResponse(raw, num, resDiv);
             } catch (e) {
                 resDiv.innerHTML = '<p>' + t.msg_track_fail + '</p>';
-            }
-        }
-        // 用真实 API 验证：请求 Speedaf 测试环境接口，用返回数据渲染
-        async function runRealApiTest() {
-            var resDiv = document.getElementById('trackResult');
-            var testMailNo = '47234208672823';
-            var t = I18N[currentLang] || I18N.zh;
-            resDiv.style.display = 'block';
-            resDiv.innerHTML = '<p>' + t.msg_track_test_loading + '</p>';
-            try {
-                var raw;
-                var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
-                if (useRemoteProxy) {
-                    try {
-                        var pr2 = await fetchTrackProxyPost({ mailNoList: [testMailNo] });
-                        if (!pr2.ok) {
-                            resDiv.innerHTML = '<p><strong>HTTP ' + pr2.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px">' + escapeHtmlTrack(pr2.text) + '</pre>';
-                            return;
-                        }
-                        try {
-                            raw = JSON.parse(pr2.text);
-                        } catch (jsonErr2) {
-                            resDiv.innerHTML = '<p>' + t.msg_track_proxy_bad_json + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px">' + escapeHtmlTrack(pr2.text.slice(0, 1200)) + '</pre>';
-                            return;
-                        }
-                    } catch (netErr2) {
-                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p><p style="margin-top:8px;font-size:13px"><code>' + escapeHtmlTrack(netErr2.message) + '</code></p>';
-                        return;
-                    }
-                } else {
-                    var built2 = buildSpeedafEncryptedBody([testMailNo]);
-                    var resp2 = await fetch(getSpeedafTrackUrl(built2.timestampMs), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain' },
-                        body: built2.body
-                    });
-                    raw = await resp2.json();
-                    if (raw && raw.success === true && typeof raw.data === 'string') {
-                        raw = JSON.parse(speedafDesDecrypt(raw.data, SPEEDAF_SECRET_KEY));
-                    }
-                }
-                renderSpeedafResponse(raw, testMailNo, resDiv);
-            } catch (e) {
-                resDiv.innerHTML = '<p>' + t.msg_track_test_fail + (e.message || '') + '</p>';
             }
         }
         // 联系表单：提交到 Formspree，由 Formspree 转发到您填写的邮箱
