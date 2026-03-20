@@ -14,6 +14,14 @@
    - `SPEEDAF_PLATFORM_SOURCE`（默认 HKXH）
 5. 访问 Vercel 分配的域名（如 `https://xxx.vercel.app`），物流查询会通过 `/api/track` 代理请求 Speedaf，不再出现跨域错误。
 
+### 若日志 / 接口返回：`getaddrinfo ENOTFOUND api.speedaf.com`
+
+说明 **Vercel 当前执行区域用的 DNS 解析不到** `api.speedaf.com`（常见于函数跑在 **美国 iad1**，而域名在海外 DNS 上无记录或异常）。
+
+本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`preferredRegion`: 香港 / 新加坡 / 首尔**，部署后函数会尽量在 **亚太** 执行，多数情况下可恢复解析。**请重新 Deploy 一次** 使配置生效。
+
+若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔），例如：`223.5.5.5,114.114.114.114,8.8.8.8`。再不行请使用 **[tencent-scf](./tencent-scf/README.md)** 国内云函数。
+
 ## 前端部署在 GitHub Pages + 自有域名时（重要）
 
 GitHub Pages **没有** `/api/track`，页面里的 `fetch('/api/track')` 会打到你的网站根域名，必然失败，随后会退回浏览器直连 Speedaf，再次出现 **CORS**。

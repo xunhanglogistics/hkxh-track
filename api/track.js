@@ -4,13 +4,13 @@
  */
 const crypto = require('crypto');
 const dns = require('dns');
-const https = require('https');
 const CryptoJS = require('crypto-js');
 
 /**
- * Vercel 部分区域对 api.speedaf.com 会 getaddrinfo ENOTFOUND（本地解析器无记录）。
- * 可选：TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114（对 undici fetch 不一定生效）
- * 代码会在 ENOTFOUND 时改用公共 DNS(JSON) 查 A 记录，再 https 直连并保留 SNI Host。
+ * 若 Vercel 日志出现：fetch failed | cause: getaddrinfo ENOTFOUND api.speedaf.com
+ * 说明美国机房 DNS 解析不到该域名。可在 Vercel 环境变量设置（逗号分隔）：
+ * TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114,8.8.8.8
+ * 仍不行则改用腾讯云 SCF（国内解析通常正常）。
  */
 if (process.env.TRACK_DNS_SERVERS) {
   const list = process.env.TRACK_DNS_SERVERS.split(',').map((s) => s.trim()).filter(Boolean);
@@ -79,109 +79,14 @@ function serializeErrorChain(err) {
   return parts.join(' | ');
 }
 
-function chainHasEnotfound(err) {
-  return serializeErrorChain(err).includes('ENOTFOUND');
-}
-
-/** 用 Google / Cloudflare 的 DNS JSON API 取 A 记录，不依赖本机解析 api.speedaf.com */
-async function resolveARecordViaDoh(hostname) {
-  const pickA = (j) => {
-    const answers = j.Answer || [];
-    const rec = answers.find((x) => x.type === 1 && x.data);
-    if (!rec) return null;
-    return String(rec.data).replace(/\.$/, '').trim();
-  };
-  const google = async () => {
-    const r = await fetch(
-      `https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=A`,
-      { headers: { accept: 'application/dns-json' } }
-    );
-    if (!r.ok) throw new Error(`DoH Google HTTP ${r.status}`);
-    const j = await r.json();
-    const ip = pickA(j);
-    if (!ip) throw new Error('DoH Google: no A record');
-    return ip;
-  };
-  const cloudflare = async () => {
-    const r = await fetch(
-      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
-      { headers: { accept: 'application/dns-json' } }
-    );
-    if (!r.ok) throw new Error(`DoH Cloudflare HTTP ${r.status}`);
-    const j = await r.json();
-    const ip = pickA(j);
-    if (!ip) throw new Error('DoH Cloudflare: no A record');
-    return ip;
-  };
-  try {
-    return await google();
-  } catch (e1) {
-    console.error('[api/track] DoH Google:', e1.message || e1);
-    return await cloudflare();
-  }
-}
-
-/** 连到解析出的 IP，TLS SNI/Host 仍为域名，证书校验通过 */
-function httpsPostToIp(fullUrlString, bodyStr) {
-  const u = new URL(fullUrlString);
-  return resolveARecordViaDoh(u.hostname).then(
-    (ip) =>
-      new Promise((resolve, reject) => {
-        const pathAndQuery = u.pathname + u.search;
-        const opts = {
-          hostname: ip,
-          port: 443,
-          path: pathAndQuery,
-          method: 'POST',
-          servername: u.hostname,
-          headers: {
-            Host: u.hostname,
-            'Content-Type': 'text/plain',
-            'Content-Length': Buffer.byteLength(bodyStr, 'utf8'),
-          },
-          rejectUnauthorized: true,
-        };
-        const req = https.request(opts, (incoming) => {
-          const chunks = [];
-          incoming.on('data', (c) => chunks.push(c));
-          incoming.on('end', () => {
-            const text = Buffer.concat(chunks).toString('utf8');
-            const status = incoming.statusCode || 0;
-            resolve({
-              ok: status >= 200 && status < 300,
-              status,
-              text: () => Promise.resolve(text),
-            });
-          });
-        });
-        req.on('error', reject);
-        req.setTimeout(90000, () => {
-          req.destroy(new Error('Speedaf https timeout'));
-        });
-        req.write(bodyStr);
-        req.end();
-      })
-  );
-}
-
-async function postSpeedaf(fullUrl, encryptedBody) {
-  try {
-    return await fetch(fullUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: encryptedBody,
-    });
-  } catch (e) {
-    if (!chainHasEnotfound(e)) throw e;
-    console.error('[api/track] fetch ENOTFOUND, retry via DoH + https:', new URL(fullUrl).hostname);
-    return httpsPostToIp(fullUrl, encryptedBody);
-  }
-}
-
 async function callSpeedaf(mailNoList) {
   const { encrypted, timestampMs } = buildBody(mailNoList);
   const url = `${SPEEDAF_URL}?appCode=${encodeURIComponent(APP_CODE)}&timestamp=${timestampMs}`;
-  const res = await postSpeedaf(url, encrypted);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: encrypted,
+  });
   const text = await res.text();
   let raw;
   try {
