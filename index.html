@@ -871,8 +871,8 @@
             }
             resDiv.innerHTML = html;
         }
-        // GitHub Pages 没有 /api，必须用 Vercel 的完整地址；若你换了 Vercel 项目名，请改下面域名
-        var TRACK_PROXY = 'https://hkxh-track-api.vercel.app/api/track';
+        // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
+        var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
         async function trackPackage(event) {
             event.preventDefault();
             var num = document.getElementById('trackingNumber').value.trim();

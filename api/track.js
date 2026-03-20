@@ -76,6 +76,24 @@ module.exports = async (req, res) => {
     res.status(204).end();
     return;
   }
+  // 浏览器地址栏打开是 GET，并非故障；仅 POST 才会查单号
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    res.status(200).json({
+      ok: true,
+      service: 'hkxh-track / Speedaf proxy',
+      note:
+        '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
+      noteEn:
+        'Browser URL bar sends GET; this API only accepts POST. Use the site’s query button, or POST JSON via curl/Postman.',
+      post: {
+        method: 'POST',
+        'Content-Type': 'application/json',
+        bodyExample: { trackingNumber: 'YOUR_MAIL_NO' },
+        bodyExampleAlt: { mailNoList: ['YOUR_MAIL_NO'] },
+      },
+    });
+    return;
+  }
   if (req.method !== 'POST') {
     res.status(405).json({ success: false, error: { message: 'Method not allowed' } });
     return;
