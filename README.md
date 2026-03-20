@@ -24,4 +24,11 @@ GitHub Pages **没有** `/api/track`，页面里的 `fetch('/api/track')` 会打
 
 改完后重新 push 到 GitHub，等 Pages 更新后再试。
 
-若在国内仍无法访问 `*.vercel.app`（连接被重置），需要把同一套代理部署到**国内可访问**的服务器（阿里云函数、腾讯云 SCF 等），并把 `TRACK_PROXY` 改成该地址；或在 Vercel 上绑定**自定义子域**（如 `api.你的域名.com`）并配置 DNS，有时可访问性会好于默认 `vercel.app`。
+若在国内仍无法访问 `*.vercel.app`（连接被重置），**浏览器无法连上 Vercel 时查询必然失败**。请任选其一：
+
+- 把 `api/track.js` 同一逻辑部署到 **阿里云函数计算 / 腾讯云云函数** 等国内节点，将 `index.html` 里 `TRACK_PROXY` 改为国内 HTTPS 地址（如 `https://api.hkxhlogistics.com/track`）。
+- 或在 Vercel 绑定 **自定义子域**（如 `api.hkxhlogistics.com`）并做 DNS 解析；部分网络下比裸 `vercel.app` 略好，**不保证**国内一定通。
+
+## 域名在腾讯云时（推荐国内访客）
+
+主站继续 **GitHub Pages + hkxhlogistics.com**，子域 **`api.hkxhlogistics.com`** 用 **腾讯云 SCF + API 网关** 部署与本仓库 `tencent-scf/index.js` 相同的代理逻辑，详见 **[tencent-scf/README.md](./tencent-scf/README.md)**。部署完成后把 `index.html` 里的 `TRACK_PROXY` 改为 `https://api.hkxhlogistics.com/track`（路径以你在网关配置为准）。

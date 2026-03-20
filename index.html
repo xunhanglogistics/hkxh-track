@@ -636,6 +636,7 @@
                 msg_track_enter: '请输入物流单号',
                 msg_track_loading: '正在查询中，请稍候...',
                 msg_track_fail: '查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。',
+                msg_track_proxy_unavailable: '无法连接查询服务（海外接口可能被当前网络限制）。请将物流查询代理部署到国内可访问的服务器（如阿里云/腾讯云函数），或在能访问 Vercel 的网络下重试。',
                 msg_track_no_result: '未找到该单号信息',
                 msg_track_no_status: '暂无状态',
                 msg_track_trail: '物流轨迹：',
@@ -704,6 +705,7 @@
                 msg_track_enter: 'Please enter tracking number',
                 msg_track_loading: 'Searching...',
                 msg_track_fail: 'Query failed. If you see a CORS error, use a backend proxy.',
+                msg_track_proxy_unavailable: 'Cannot reach the tracking service (overseas host may be blocked on your network). Deploy the proxy on a server reachable in your region (e.g. Aliyun/Tencent Cloud), or try again from a network that can reach Vercel.',
                 msg_track_no_result: 'No tracking information found',
                 msg_track_no_status: 'No status',
                 msg_track_trail: 'Tracking:',
@@ -884,14 +886,20 @@
             resDiv.innerHTML = '<p>' + t.msg_track_loading + '</p>';
             try {
                 var raw;
+                var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
                 try {
                     var proxyResp = await fetch(TRACK_PROXY, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mailNoList: [num] })
                     });
+                    if (!proxyResp.ok) throw new Error('proxy ' + proxyResp.status);
                     raw = await proxyResp.json();
                 } catch (proxyErr) {
+                    if (useRemoteProxy) {
+                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
+                        return;
+                    }
                     var built = buildSpeedafEncryptedBody([num]);
                     var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
                         method: 'POST',
@@ -918,14 +926,20 @@
             resDiv.innerHTML = '<p>' + t.msg_track_test_loading + '</p>';
             try {
                 var raw;
+                var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
                 try {
                     var proxyResp = await fetch(TRACK_PROXY, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mailNoList: [testMailNo] })
                     });
+                    if (!proxyResp.ok) throw new Error('proxy ' + proxyResp.status);
                     raw = await proxyResp.json();
                 } catch (proxyErr) {
+                    if (useRemoteProxy) {
+                        resDiv.innerHTML = '<p>' + t.msg_track_proxy_unavailable + '</p>';
+                        return;
+                    }
                     var built = buildSpeedafEncryptedBody([testMailNo]);
                     var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
                         method: 'POST',
