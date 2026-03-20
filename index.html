@@ -878,7 +878,8 @@
             resDiv.innerHTML = html;
         }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
-        var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
+        // 腾讯云 SCF 函数 URL（国内出口访问 Speedaf）；若绑定自定义域名可再改此处
+        var TRACK_PROXY = 'https://1405214189-3emqjc1agh.ap-guangzhou.tencentscf.com';
         function escapeHtmlTrack(s) {
             return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }

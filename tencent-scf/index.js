@@ -1,14 +1,15 @@
 /**
- * 腾讯云 SCF（云函数）+ API 网关：国内访问 Speedaf 轨迹代理
- * 部署后把 index.html 里 TRACK_PROXY 改为：https://api.你的域名.com/track
+ * 腾讯云 SCF + API 网关：国内出口访问 Speedaf，解决 Vercel 上 api.speedaf.com DNS 失败等问题
  *
- * 环境变量（函数配置里添加，勿写死在代码）：
+ * 部署后：推荐「函数 URL」触发器（API 网关触发器已停售新建）。
+ * 前端 TRACK_PROXY = 控制台给出的完整 HTTPS 地址（通常无 /api/track 路径）。
+ *
+ * 环境变量（函数配置 → 环境变量）：
  * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY, SPEEDAF_CUSTOMER_CODE, SPEEDAF_PLATFORM_SOURCE
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
 
-/** Node 18+/OpenSSL 3 不支持 des-cbc，改用 crypto-js */
 const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
@@ -57,6 +58,18 @@ function buildBody(mailNoList) {
   return { encrypted, timestampMs };
 }
 
+function serializeErrorChain(err) {
+  if (!err) return '';
+  const parts = [err.message || String(err)];
+  let c = err.cause;
+  for (let i = 0; c && i < 6; i += 1) {
+    const code = c.code ? ` [${c.code}]` : '';
+    parts.push(`cause: ${c.message || String(c)}${code}`);
+    c = c.cause;
+  }
+  return parts.join(' | ');
+}
+
 async function callSpeedaf(mailNoList) {
   const { encrypted, timestampMs } = buildBody(mailNoList);
   const url = `${SPEEDAF_URL}?appCode=${encodeURIComponent(APP_CODE)}&timestamp=${timestampMs}`;
@@ -65,7 +78,13 @@ async function callSpeedaf(mailNoList) {
     headers: { 'Content-Type': 'text/plain' },
     body: encrypted,
   });
-  const raw = await res.json();
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`Speedaf non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
   if (raw && raw.success === true && typeof raw.data === 'string') {
     const decrypted = desDecrypt(raw.data, SECRET_KEY);
     return JSON.parse(decrypted);
@@ -75,7 +94,7 @@ async function callSpeedaf(mailNoList) {
 
 function corsHeaders() {
   return {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
@@ -95,7 +114,7 @@ function parseEventBody(event) {
       return {};
     }
   }
-  return raw || {};
+  return raw && typeof raw === 'object' ? raw : {};
 }
 
 function getMethod(event) {
@@ -107,6 +126,14 @@ function getMethod(event) {
   );
 }
 
+function jsonResponse(statusCode, obj) {
+  return {
+    statusCode,
+    headers: corsHeaders(),
+    body: JSON.stringify(obj),
+  };
+}
+
 exports.main_handler = async (event) => {
   const method = getMethod(event).toUpperCase();
   const headers = corsHeaders();
@@ -115,12 +142,17 @@ exports.main_handler = async (event) => {
     return { statusCode: 204, headers, body: '' };
   }
 
+  // 与 Vercel /api/track GET 一致，便于浏览器探活
+  if (method === 'GET' || method === 'HEAD') {
+    return jsonResponse(200, {
+      ok: true,
+      service: 'hkxh-track / Tencent SCF → Speedaf',
+      note: '请使用 POST，Content-Type: application/json，body: { "mailNoList": ["单号"] } 或 { "trackingNumber": "单号" }',
+    });
+  }
+
   if (method !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ success: false, error: { message: 'Method not allowed' } }),
-    };
+    return jsonResponse(405, { success: false, error: { message: 'Method not allowed' } });
   }
 
   const body = parseEventBody(event);
@@ -132,27 +164,25 @@ exports.main_handler = async (event) => {
   }
 
   if (mailNoList.length === 0) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        error: { message: 'mailNoList or trackingNumber required' },
-      }),
-    };
+    return jsonResponse(400, {
+      success: false,
+      error: { message: 'mailNoList or trackingNumber required' },
+    });
   }
 
   try {
     const data = await callSpeedaf(mailNoList);
-    return { statusCode: 200, headers, body: JSON.stringify(data) };
+    return jsonResponse(200, data);
   } catch (e) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        error: { code: '500', message: e.message || 'Proxy error' },
-      }),
-    };
+    const detail = serializeErrorChain(e);
+    console.error('[scf/track] error:', detail || e);
+    return jsonResponse(500, {
+      success: false,
+      error: {
+        code: '500',
+        message: e.message || 'Proxy error',
+        detail: detail || undefined,
+      },
+    });
   }
 };
