@@ -54,6 +54,19 @@ function buildBody(mailNoList) {
   return { encrypted, timestampMs };
 }
 
+/** 把 fetch / 底层 TLS 错误链打平，便于 Vercel Logs → Messages 里看到 ETIMEDOUT 等 */
+function serializeErrorChain(err) {
+  if (!err) return '';
+  const parts = [err.message || String(err)];
+  let c = err.cause;
+  for (let i = 0; c && i < 6; i += 1) {
+    const code = c.code ? ` [${c.code}]` : '';
+    parts.push(`cause: ${c.message || String(c)}${code}`);
+    c = c.cause;
+  }
+  return parts.join(' | ');
+}
+
 async function callSpeedaf(mailNoList) {
   const { encrypted, timestampMs } = buildBody(mailNoList);
   const url = `${SPEEDAF_URL}?appCode=${encodeURIComponent(APP_CODE)}&timestamp=${timestampMs}`;
@@ -62,7 +75,13 @@ async function callSpeedaf(mailNoList) {
     headers: { 'Content-Type': 'text/plain' },
     body: encrypted,
   });
-  const raw = await res.json();
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (parseErr) {
+    throw new Error(`Speedaf non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
   if (raw && raw.success === true && typeof raw.data === 'string') {
     const decrypted = desDecrypt(raw.data, SECRET_KEY);
     return JSON.parse(decrypted);
@@ -148,9 +167,16 @@ module.exports = async (req, res) => {
     const data = await callSpeedaf(mailNoList);
     res.status(200).json(data);
   } catch (e) {
+    const chain = serializeErrorChain(e);
+    console.error('[api/track] Speedaf proxy error:', chain || e);
     res.status(500).json({
       success: false,
-      error: { code: '500', message: e.message || 'Proxy error' },
+      error: {
+        code: '500',
+        message: e.message || 'Proxy error',
+        // 便于远程排查；不含密钥。部署稳定后可删 detail
+        detail: chain || undefined,
+      },
     });
   }
 };
