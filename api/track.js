@@ -3,7 +3,19 @@
  * 前端 POST /api/track，body: { mailNoList: ["单号"] } 或 { trackingNumber: "单号" }
  */
 const crypto = require('crypto');
+const dns = require('dns');
 const CryptoJS = require('crypto-js');
+
+/**
+ * 若 Vercel 日志出现：fetch failed | cause: getaddrinfo ENOTFOUND api.speedaf.com
+ * 说明美国机房 DNS 解析不到该域名。可在 Vercel 环境变量设置（逗号分隔）：
+ * TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114,8.8.8.8
+ * 仍不行则改用腾讯云 SCF（国内解析通常正常）。
+ */
+if (process.env.TRACK_DNS_SERVERS) {
+  const list = process.env.TRACK_DNS_SERVERS.split(',').map((s) => s.trim()).filter(Boolean);
+  if (list.length) dns.setServers(list);
+}
 
 /** 与 Speedaf 文档一致；勿用 Node crypto DES（Node 18+/OpenSSL 3 默认不支持 des-cbc） */
 const DES_IV_HEX = '1234567890abcdef';
