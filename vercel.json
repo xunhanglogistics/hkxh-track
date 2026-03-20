@@ -1,8 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "functions": {
     "api/track.js": {
-      "preferredRegion": ["hkg1", "sin1", "icn1"]
+      "regions": ["hkg1"]
     }
   }
 }

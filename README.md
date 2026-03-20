@@ -18,7 +18,8 @@
 
 说明 **Vercel 当前执行区域用的 DNS 解析不到** `api.speedaf.com`（常见于函数跑在 **美国 iad1**，而域名在海外 DNS 上无记录或异常）。
 
-本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`preferredRegion`: 香港 / 新加坡 / 首尔**，部署后函数会尽量在 **亚太** 执行，多数情况下可恢复解析。**请重新 Deploy 一次** 使配置生效。
+本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`regions`: `["hkg1"]`（香港）**，让该函数在亚太执行，便于解析 `api.speedaf.com`。**请重新 Deploy**。  
+（Vercel 已不再支持 `preferredRegion`，须用官方字段 **`regions`**。Hobby 套餐通常只能指定**一个**区域；Pro 可在该数组中增加 `sin1`、`icn1` 等。）
 
 若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔），例如：`223.5.5.5,114.114.114.114,8.8.8.8`。再不行请使用 **[tencent-scf](./tencent-scf/README.md)** 国内云函数。
 
