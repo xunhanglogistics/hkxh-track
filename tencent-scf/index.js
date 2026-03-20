@@ -1,5 +1,5 @@
 /**
- * 腾讯云 SCF + API 网关：国内出口访问 Speedaf，解决 Vercel 上 api.speedaf.com DNS 失败等问题
+ * 腾讯云 SCF：正式环境域名 **apis.speedaf.com**（见官方文档 track_query）
  *
  * 部署后：推荐「函数 URL」触发器（API 网关触发器已停售新建）。
  * 前端 TRACK_PROXY = 控制台给出的完整 HTTPS 地址（通常无 /api/track 路径）。
@@ -15,7 +15,7 @@ const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 const CUSTOMER_CODE = process.env.SPEEDAF_CUSTOMER_CODE || 'CN000796';
 const PLATFORM_SOURCE = process.env.SPEEDAF_PLATFORM_SOURCE || 'HKXH';
-const SPEEDAF_URL = 'https://api.speedaf.com/open-api/express/track/query';
+const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();

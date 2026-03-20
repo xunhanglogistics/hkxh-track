@@ -1,6 +1,6 @@
 # 腾讯云 SCF + API 网关：国内代理 Speedaf（推荐替代 Vercel）
 
-在 Vercel 上出现 **`ENOTFOUND api.speedaf.com`** 时，云函数跑在海外/解析异常；把 **轨迹代理** 放到腾讯云，从 **国内出口** 访问 `https://api.speedaf.com` 通常即可正常解析。
+正式环境接口域名为 **`https://apis.speedaf.com`**（见 [轨迹实时查询文档](https://apis.speedaf.com/doc/zh-cn/track_query.html)），勿误用 `api.speedaf.com`。把代理放在 **腾讯云 SCF** 可从国内访问该域名。
 
 前端仓库里 **`index.html`** 已使用：
 

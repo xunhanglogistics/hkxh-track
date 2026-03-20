@@ -810,7 +810,7 @@
             return (toHex(a) + toHex(b) + toHex(c) + toHex(d)).toLowerCase();
         }
         function getSpeedafTrackUrl(timestampMs) {
-            return 'https://api.speedaf.com/open-api/express/track/query?appCode=' + encodeURIComponent(SPEEDAF_APP_CODE) + '&timestamp=' + timestampMs;
+            return 'https://apis.speedaf.com/open-api/express/track/query?appCode=' + encodeURIComponent(SPEEDAF_APP_CODE) + '&timestamp=' + timestampMs;
         }
         function speedafIv() {
             return CryptoJS.lib.WordArray.create([0x12345678, 0x90ABCDEF]);

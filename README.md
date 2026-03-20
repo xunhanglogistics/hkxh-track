@@ -14,14 +14,14 @@
    - `SPEEDAF_PLATFORM_SOURCE`（默认 HKXH）
 5. 访问 Vercel 分配的域名（如 `https://xxx.vercel.app`），物流查询会通过 `/api/track` 代理请求 Speedaf，不再出现跨域错误。
 
-### 若日志 / 接口返回：`getaddrinfo ENOTFOUND api.speedaf.com`
+### 若日志 / 接口返回：`getaddrinfo ENOTFOUND …speedaf.com`
 
-说明 **Vercel 当前执行区域用的 DNS 解析不到** `api.speedaf.com`（常见于函数跑在 **美国 iad1**，而域名在海外 DNS 上无记录或异常）。
+请先核对官方文档：正式环境域名为 **`https://apis.speedaf.com`**（**apis** 带 **s**），勿写成 `api.speedaf.com`（无 s，易 ENOTFOUND）。
 
-本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`regions`: `["hkg1"]`（香港）**，让该函数在亚太执行，便于解析 `api.speedaf.com`。**请重新 Deploy**。  
+本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`regions`: `["hkg1"]`（香港）**。**请重新 Deploy**。  
 （Vercel 已不再支持 `preferredRegion`，须用官方字段 **`regions`**。Hobby 套餐通常只能指定**一个**区域；Pro 可在该数组中增加 `sin1`、`icn1` 等。）
 
-若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔）。`api/track.js` 会 **`dns.lookup` → 失败则经 1.1.1.1 / 8.8.8.8 的 DoH 解析**，再 **`https` 连 Speedaf**。若 DoH 仍无 A 记录，说明公网可能无该域名，需问速达非要正式地址或使用 **[tencent-scf](./tencent-scf/README.md)**。
+若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔）。`api/track.js` 会 **`dns.lookup` → 失败则经 DoH 解析**，再 **`https` 连 `apis.speedaf.com`**。也可使用 **[tencent-scf](./tencent-scf/README.md)**。
 
 ## 前端部署在 GitHub Pages + 自有域名时（重要）
 

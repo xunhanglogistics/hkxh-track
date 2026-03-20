@@ -9,7 +9,7 @@ const { URL } = require('url');
 const CryptoJS = require('crypto-js');
 
 /**
- * ENOTFOUND api.speedaf.com 时：
+ * ENOTFOUND 时检查域名是否为官方 **apis.speedaf.com**（带 s），勿用 api.speedaf.com。
  * 1) 可选 TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114（逗号分隔）
  * 2) 先 dns.lookup；仍失败则走 DoH（1.1.1.1 / 8.8.8.8 直连 IP + SNI），绕过 Vercel 本地解析器
  * 3) 若 DoH 也无 A 记录，说明公网可能没有该域名 → 问速达非要正式地址或改用腾讯云 SCF
@@ -25,7 +25,8 @@ const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 const CUSTOMER_CODE = process.env.SPEEDAF_CUSTOMER_CODE || 'CN000796';
 const PLATFORM_SOURCE = process.env.SPEEDAF_PLATFORM_SOURCE || 'HKXH';
-const SPEEDAF_URL = 'https://api.speedaf.com/open-api/express/track/query';
+/** 正式环境见文档：https://apis.speedaf.com/doc/zh-cn/track_query.html */
+const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
