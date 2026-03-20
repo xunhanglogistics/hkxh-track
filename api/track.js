@@ -9,11 +9,10 @@ const { URL } = require('url');
 const CryptoJS = require('crypto-js');
 
 /**
- * 若 Vercel 日志出现 ENOTFOUND api.speedaf.com：
- * 1) 在环境变量设置 TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114,8.8.8.8（逗号分隔）
- * 2) 注意：Node 自带 fetch(undici) 常忽略 dns.setServers，故本文件用 dns.promises.lookup + https.request，
- *    才会真正按你指定的 DNS 解析。
- * 仍不行则改用腾讯云 SCF。
+ * ENOTFOUND api.speedaf.com 时：
+ * 1) 可选 TRACK_DNS_SERVERS=223.5.5.5,114.114.114.114（逗号分隔）
+ * 2) 先 dns.lookup；仍失败则走 DoH（1.1.1.1 / 8.8.8.8 直连 IP + SNI），绕过 Vercel 本地解析器
+ * 3) 若 DoH 也无 A 记录，说明公网可能没有该域名 → 问速达非要正式地址或改用腾讯云 SCF
  */
 if (process.env.TRACK_DNS_SERVERS) {
   const list = process.env.TRACK_DNS_SERVERS.split(',').map((s) => s.trim()).filter(Boolean);
@@ -82,43 +81,124 @@ function serializeErrorChain(err) {
   return parts.join(' | ');
 }
 
+/** 通过固定 IP 访问 DoH，避免再依赖「解析 DoH 域名」 */
+function dohQueryJson(ip, servername, pathWithQuery) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      host: ip,
+      port: 443,
+      path: pathWithQuery,
+      method: 'GET',
+      servername,
+      headers: {
+        Host: servername,
+        accept: 'application/dns-json',
+      },
+    };
+    https
+      .get(opts, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const text = Buffer.concat(chunks).toString('utf8');
+            resolve(text ? JSON.parse(text) : {});
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on('error', reject);
+  });
+}
+
+function pickAFromDohAnswer(json) {
+  if (!json || json.Status !== 0) return null;
+  const answers = json.Answer || [];
+  const aRecords = answers.filter((x) => x.type === 1 && x.data);
+  if (!aRecords.length) return null;
+  return aRecords[aRecords.length - 1].data;
+}
+
 /**
- * 使用 Node dns（尊重 TRACK_DNS_SERVERS）解析后再 HTTPS POST，避免 undici fetch 不走 setServers。
+ * 先系统/自定义 DNS；ENOTFOUND 时用 Cloudflare/Google DoH 取 A 记录
  */
-function httpsPostSpeedaf(urlString, plainBody) {
+async function resolveHostToIPv4(hostname) {
+  try {
+    const { address } = await dns.promises.lookup(hostname, { family: 4 });
+    return address;
+  } catch (err) {
+    if (err.code !== 'ENOTFOUND') throw err;
+    if (process.env.TRACK_DISABLE_DOH === '1' || process.env.TRACK_DISABLE_DOH === 'true') {
+      throw err;
+    }
+    let last = err.message;
+    try {
+      const j1 = await dohQueryJson(
+        '1.1.1.1',
+        'cloudflare-dns.com',
+        `/dns-query?name=${encodeURIComponent(hostname)}&type=A`
+      );
+      const ip1 = pickAFromDohAnswer(j1);
+      if (ip1) return ip1;
+      last = `Cloudflare DoH Status=${j1.Status}`;
+    } catch (e) {
+      last = e.message || String(e);
+    }
+    try {
+      const j2 = await dohQueryJson(
+        '8.8.8.8',
+        'dns.google',
+        `/resolve?name=${encodeURIComponent(hostname)}&type=A`
+      );
+      const ip2 = pickAFromDohAnswer(j2);
+      if (ip2) return ip2;
+      last = `Google DoH Status=${j2.Status}`;
+    } catch (e) {
+      last = e.message || String(e);
+    }
+    throw new Error(
+      `ENOTFOUND ${hostname}（本地 DNS 与 DoH 均未得到 A 记录）。${last}。请向速达非确认正式 API 域名，或使用国内云函数代理。`
+    );
+  }
+}
+
+function httpsPostToIp(urlString, plainBody, targetIp) {
   const u = new URL(urlString);
   const bodyBuf = Buffer.from(plainBody, 'utf8');
-  return dns.promises
-    .lookup(u.hostname, { family: 4 })
-    .then(({ address }) => {
-      return new Promise((resolve, reject) => {
-        const opts = {
-          host: address,
-          port: 443,
-          path: `${u.pathname}${u.search}`,
-          method: 'POST',
-          servername: u.hostname,
-          headers: {
-            Host: u.hostname,
-            'Content-Type': 'text/plain',
-            'Content-Length': String(bodyBuf.length),
-          },
-        };
-        const req = https.request(opts, (res) => {
-          const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () => {
-            resolve({
-              status: res.statusCode || 0,
-              text: Buffer.concat(chunks).toString('utf8'),
-            });
-          });
+  return new Promise((resolve, reject) => {
+    const opts = {
+      host: targetIp,
+      port: 443,
+      path: `${u.pathname}${u.search}`,
+      method: 'POST',
+      servername: u.hostname,
+      headers: {
+        Host: u.hostname,
+        'Content-Type': 'text/plain',
+        'Content-Length': String(bodyBuf.length),
+      },
+    };
+    const req = https.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
         });
-        req.on('error', reject);
-        req.write(bodyBuf);
-        req.end();
       });
     });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
+async function httpsPostSpeedaf(urlString, plainBody) {
+  const u = new URL(urlString);
+  const address = await resolveHostToIPv4(u.hostname);
+  return httpsPostToIp(urlString, plainBody, address);
 }
 
 async function callSpeedaf(mailNoList) {

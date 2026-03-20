@@ -21,7 +21,7 @@
 本项目已在 **`vercel.json`** 中为 `api/track.js` 设置 **`regions`: `["hkg1"]`（香港）**，让该函数在亚太执行，便于解析 `api.speedaf.com`。**请重新 Deploy**。  
 （Vercel 已不再支持 `preferredRegion`，须用官方字段 **`regions`**。Hobby 套餐通常只能指定**一个**区域；Pro 可在该数组中增加 `sin1`、`icn1` 等。）
 
-若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔），例如：`223.5.5.5,114.114.114.114,8.8.8.8`。代码会用 **`dns.lookup` + `https.request`** 发请求，才会真正使用上述 DNS（仅设变量但继续用 `fetch` 时，Node 可能仍忽略自定义 DNS）。再不行请使用 **[tencent-scf](./tencent-scf/README.md)** 国内云函数。
+若仍失败，可在 Vercel 环境变量增加 **`TRACK_DNS_SERVERS`**（逗号分隔）。`api/track.js` 会 **`dns.lookup` → 失败则经 1.1.1.1 / 8.8.8.8 的 DoH 解析**，再 **`https` 连 Speedaf**。若 DoH 仍无 A 记录，说明公网可能无该域名，需问速达非要正式地址或使用 **[tencent-scf](./tencent-scf/README.md)**。
 
 ## 前端部署在 GitHub Pages + 自有域名时（重要）
 
