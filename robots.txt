@@ -1,0 +1,5 @@
+User-agent: Baiduspider
+Allow: /
+User-agent: *
+Allow: /
+Sitemap: https://hkxhlogistics.com/sitemap.xml
