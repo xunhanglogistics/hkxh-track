@@ -5,7 +5,8 @@
  * 前端 TRACK_PROXY = 控制台给出的完整 HTTPS 地址（通常无 /api/track 路径）。
  *
  * 环境变量（函数配置 → 环境变量）：
- * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（轨迹查询签名的 data 仅需 mailNoList，勿在 data 里加 customerCode）
+ * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（速达非）
+ * YW56_AUTHORIZATION（燕文轨迹 GET 的 Authorization：商户号或制单账号，与订单 apitoken 不同）
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
@@ -14,6 +15,10 @@ const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
+
+const YW56_TRACK_BASE =
+  process.env.YW56_TRACK_BASE || 'https://api.track.yw56.com.cn/api/tracking';
+const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -66,6 +71,38 @@ function serializeErrorChain(err) {
     c = c.cause;
   }
   return parts.join(' | ');
+}
+
+async function callYanwenTracking(mailNoList) {
+  if (!YW56_AUTHORIZATION) {
+    throw new Error(
+      '未配置 YW56_AUTHORIZATION：请在 SCF 环境变量中填写燕文「商户号」或「制单账号」（轨迹接口 Authorization）'
+    );
+  }
+  const list = mailNoList.slice(0, 30).map((s) => String(s).trim()).filter(Boolean);
+  if (!list.length) throw new Error('Empty tracking numbers');
+  const nums = list.join(',');
+  const url = `${YW56_TRACK_BASE.replace(/\/$/, '')}?nums=${encodeURIComponent(nums)}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: YW56_AUTHORIZATION,
+      Accept: 'application/json',
+    },
+  });
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`Yanwen non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(
+      `Yanwen HTTP ${res.status}: ${(raw && raw.message) || text.slice(0, 200)}`
+    );
+  }
+  return raw;
 }
 
 async function callSpeedaf(mailNoList) {
@@ -144,8 +181,8 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf',
-      note: '请使用 POST，Content-Type: application/json，body: { "mailNoList": ["单号"] } 或 { "trackingNumber": "单号" }',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen',
+      note: 'POST application/json，速达非: { mailNoList } 或 { trackingNumber }；燕文: { "provider":"yanwen", "trackingNumber":"单号" }',
     });
   }
 
@@ -168,8 +205,17 @@ exports.main_handler = async (event) => {
     });
   }
 
+  const provider = String(body.provider || 'speedaf')
+    .toLowerCase()
+    .trim();
+
   try {
-    const data = await callSpeedaf(mailNoList);
+    let data;
+    if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
+      data = await callYanwenTracking(mailNoList);
+    } else {
+      data = await callSpeedaf(mailNoList);
+    }
     return jsonResponse(200, data);
   } catch (e) {
     const detail = serializeErrorChain(e);

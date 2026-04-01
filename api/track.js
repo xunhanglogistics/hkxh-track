@@ -1,6 +1,10 @@
 /**
- * Vercel Serverless 代理：转发轨迹查询到 Speedaf，解决浏览器 CORS 限制
- * 前端 POST /api/track，body: { mailNoList: ["单号"] } 或 { trackingNumber: "单号" }
+ * Vercel Serverless 代理：转发轨迹查询到 Speedaf / 燕文，解决浏览器 CORS 与燕文 Authorization 外露问题
+ * 前端 POST /api/track
+ *   Speedaf: { provider: "speedaf"（可省略）, mailNoList: ["单号"] } 或 { trackingNumber }
+ *   燕文: { provider: "yanwen", trackingNumber }（见 https://opendocs.yw56.com.cn 物流轨迹查询）
+ *
+ * 环境变量 YW56_AUTHORIZATION：燕文轨迹接口 Header 中的「商户号」或「制单账号」（与开放订单 API 的 apitoken 不同）
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -25,6 +29,11 @@ const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 /** 正式环境见文档：https://apis.speedaf.com/doc/zh-cn/track_query.html */
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
+
+/** 燕文物流轨迹（GET + Authorization），文档：开放平台 → 小包专线 → 物流轨迹查询 */
+const YW56_TRACK_BASE =
+  process.env.YW56_TRACK_BASE || 'https://api.track.yw56.com.cn/api/tracking';
+const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -197,6 +206,63 @@ async function httpsPostSpeedaf(urlString, plainBody) {
   return httpsPostToIp(urlString, plainBody, address);
 }
 
+function httpsGetText(urlString, headers) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const reqHeaders = {
+      Host: u.hostname,
+      ...(headers || {}),
+    };
+    const opts = {
+      hostname: u.hostname,
+      port: u.port || 443,
+      path: `${u.pathname}${u.search}`,
+      method: 'GET',
+      headers: reqHeaders,
+    };
+    const req = https.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function callYanwenTracking(mailNoList) {
+  if (!YW56_AUTHORIZATION) {
+    throw new Error(
+      '服务端未配置燕文轨迹授权：请在 Vercel / 部署环境中设置环境变量 YW56_AUTHORIZATION（商户号或制单账号）'
+    );
+  }
+  const list = mailNoList.slice(0, 30).map((s) => String(s).trim()).filter(Boolean);
+  if (!list.length) throw new Error('Empty tracking numbers');
+  const nums = list.join(',');
+  const url = `${YW56_TRACK_BASE.replace(/\/$/, '')}?nums=${encodeURIComponent(nums)}`;
+  const { status, text } = await httpsGetText(url, {
+    Authorization: YW56_AUTHORIZATION,
+    Accept: 'application/json',
+  });
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`Yanwen non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(
+      `Yanwen HTTP ${status}: ${(raw && raw.message) || text.slice(0, 200)}`
+    );
+  }
+  return raw;
+}
+
 async function callSpeedaf(mailNoList) {
   const { encrypted, timestampMs } = buildBody(mailNoList);
   const url = `${SPEEDAF_URL}?appCode=${encodeURIComponent(APP_CODE)}&timestamp=${timestampMs}`;
@@ -254,7 +320,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf proxy',
+      service: 'hkxh-track / Speedaf + Yanwen proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -264,6 +330,7 @@ module.exports = async (req, res) => {
         'Content-Type': 'application/json',
         bodyExample: { trackingNumber: 'YOUR_MAIL_NO' },
         bodyExampleAlt: { mailNoList: ['YOUR_MAIL_NO'] },
+        bodyYanwen: { provider: 'yanwen', trackingNumber: 'YOUR_YW_NO' },
       },
     });
     return;
@@ -273,8 +340,9 @@ module.exports = async (req, res) => {
     return;
   }
   let mailNoList = [];
+  let body = {};
   try {
-    const body = parseJsonBody(req);
+    body = parseJsonBody(req);
     if (Array.isArray(body.mailNoList)) {
       mailNoList = body.mailNoList.filter(Boolean);
     } else if (body.trackingNumber) {
@@ -288,12 +356,20 @@ module.exports = async (req, res) => {
     res.status(400).json({ success: false, error: { message: 'mailNoList or trackingNumber required' } });
     return;
   }
+  const provider = String(body.provider || 'speedaf')
+    .toLowerCase()
+    .trim();
   try {
-    const data = await callSpeedaf(mailNoList);
+    let data;
+    if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
+      data = await callYanwenTracking(mailNoList);
+    } else {
+      data = await callSpeedaf(mailNoList);
+    }
     res.status(200).json(data);
   } catch (e) {
     const chain = serializeErrorChain(e);
-    console.error('[api/track] Speedaf proxy error:', chain || e);
+    console.error('[api/track] proxy error:', chain || e);
     res.status(500).json({
       success: false,
       error: {

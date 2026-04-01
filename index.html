@@ -216,6 +216,30 @@
             margin: 0 auto;
         }
 
+        .track-provider-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 14px;
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        .track-provider-row label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .track-provider-row input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--primary);
+        }
+
         .track-form {
             display: flex;
             gap: 12px;
@@ -496,10 +520,22 @@
             <h2 class="section-title" data-i18n="track_title">物流单号查询</h2>
             <p class="section-subtitle" data-i18n="track_subtitle">输入您的单号，一键查询最新物流状态</p>
             <div class="track-box">
-                <form class="track-form" onsubmit="trackPackage(event)">
-                    <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
-                        placeholder="请输入您的物流单号" required>
-                    <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
+                <form onsubmit="trackPackage(event)">
+                    <div class="track-provider-row">
+                        <label>
+                            <input type="radio" name="trackProvider" value="speedaf" checked>
+                            <span data-i18n="track_provider_speedaf">路径1</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="trackProvider" value="yanwen">
+                            <span data-i18n="track_provider_yanwen">路径2</span>
+                        </label>
+                    </div>
+                    <div class="track-form">
+                        <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
+                            placeholder="请输入您的物流单号" required>
+                        <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
+                    </div>
                 </form>
                 <div id="trackResult" class="track-result"></div>
             </div>
@@ -601,6 +637,8 @@
                 track_title: '物流单号查询',
                 track_subtitle: '输入您的单号，一键查询最新物流状态',
                 track_placeholder: '请输入您的物流单号',
+                track_provider_speedaf: '路径1',
+                track_provider_yanwen: '路径2',
                 track_btn: '立即查询',
                 contact_title: '联系我们',
                 contact_subtitle: '专业团队随时为您提供支持与服务',
@@ -645,7 +683,8 @@
                 msg_contact_ok: '提交成功！我们会尽快通过您留下的邮箱与您联系。',
                 msg_contact_fail: '提交失败，请稍后重试或直接致电/发邮件联系我们。',
                 msg_contact_network: '网络异常，请检查网络后重试。',
-                msg_track_timeout_hint: '可能原因：① 测试环境暂无该单号数据，接口查询超时；② 签名(sign)算法与文档不一致导致服务端处理异常。建议向 Speedaf 确认：测试环境是否有可用测试单号、以及正确的签名规则。'
+                msg_track_timeout_hint: '可能原因：① 测试环境暂无该单号数据或查询超时；② 签名与接口要求不一致。请联系技术或物流服务方确认测试单号与签名规则。',
+                msg_track_path2_need_proxy: '路径2需通过已配置的线上查询服务使用；请在部署环境完成接口代理后再试。'
             },
             en: {
                 logo: 'HKXH International Logistics',
@@ -669,6 +708,8 @@
                 track_title: 'Track Your Shipment',
                 track_subtitle: 'Enter your tracking number to see the latest status',
                 track_placeholder: 'Enter tracking number',
+                track_provider_speedaf: 'Path 1',
+                track_provider_yanwen: 'Path 2',
                 track_btn: 'Track',
                 contact_title: 'Contact Us',
                 contact_subtitle: 'Our team is ready to support you',
@@ -713,7 +754,8 @@
                 msg_contact_ok: 'Submitted! We will contact you via your email soon.',
                 msg_contact_fail: 'Submission failed. Please try again or contact us by phone/email.',
                 msg_contact_network: 'Network error. Please check your connection and try again.',
-                msg_track_timeout_hint: 'Possible causes: test env has no data for this number or sign algorithm mismatch. Please confirm with Speedaf: test tracking number and correct sign rules.'
+                msg_track_timeout_hint: 'Possible causes: test env has no data or timeout; or sign algorithm does not match the API. Please confirm test numbers and signing rules with your tech or logistics provider.',
+                msg_track_path2_need_proxy: 'Path 2 requires the hosted query API to be configured. Please deploy the proxy and try again.'
             }
         };
         function applyI18n() {
@@ -747,7 +789,7 @@
             const nav = document.getElementById('mainNav');
             nav.classList.toggle('active');
         }
-        // 物流查询 - Speedaf 接口规范：MD5(timestamp+secretKey+data) 签名，Body 为 DES+CBC+Base64 加密
+        // 路径1 直连查询：MD5(timestamp+secretKey+data) 签名，Body 为 DES+CBC+Base64 加密
         const SPEEDAF_APP_CODE = 'CN000796';
         const SPEEDAF_SECRET_KEY = 'Ty2pi72K';
         const SPEEDAF_CUSTOMER_CODE = 'CN000796';
@@ -867,6 +909,69 @@
             }
             resDiv.innerHTML = html;
         }
+        /** 路径2 轨迹 API 返回：code、result[].checkpoints 等 */
+        function renderYanwenResponse(raw, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (raw && typeof raw.success === 'boolean' && !raw.success && raw.error) {
+                var msg = (raw.error && raw.error.message) ? raw.error.message : t2.msg_track_fail;
+                resDiv.innerHTML = '<p>' + escapeHtmlTrack(msg) + '</p>';
+                return;
+            }
+            var ok = raw && (raw.code === 0 || raw.code === '0');
+            if (!ok) {
+                var m = (raw && raw.message) ? String(raw.message) : t2.msg_track_no_result;
+                resDiv.innerHTML = '<p>' + escapeHtmlTrack(m) + '</p>';
+                return;
+            }
+            var result = raw.result;
+            if (!Array.isArray(result) || result.length === 0) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var input = String(inputNumber).trim();
+            var inputU = input.toUpperCase();
+            var item = null;
+            for (var ri = 0; ri < result.length; ri++) {
+                var r = result[ri];
+                if (!r) continue;
+                var tn = String(r.tracking_number || '').toUpperCase();
+                var wn = String(r.waybill_number || '').toUpperCase();
+                var en = String(r.exchange_number || '').toUpperCase();
+                if (tn === inputU || wn === inputU || en === inputU) {
+                    item = r;
+                    break;
+                }
+            }
+            if (!item) item = result[0];
+            var cps = item.checkpoints && item.checkpoints.length ? item.checkpoints.slice() : [];
+            var latest = cps.length > 0 ? cps[cps.length - 1] : null;
+            var status = latest ? (latest.message || latest.tracking_status || '') : t2.msg_track_no_status;
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var waybillLabel = currentLang === 'zh' ? '主单号：' : 'Waybill: ';
+            var exchLabel = currentLang === 'zh' ? '尾程单号：' : 'Last-mile no.: ';
+            var routeLabel = currentLang === 'zh' ? '线路：' : 'Route: ';
+            var statusLabel = currentLang === 'zh' ? '最新状态：' : 'Latest status: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            if (item.waybill_number) html += '<p><strong>' + waybillLabel + '</strong>' + escapeHtmlTrack(item.waybill_number) + '</p>';
+            if (item.exchange_number) html += '<p><strong>' + exchLabel + '</strong>' + escapeHtmlTrack(item.exchange_number) + '</p>';
+            if (item.origin_country || item.destination_country) {
+                html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(item.origin_country || '—') + ' → ' + escapeHtmlTrack(item.destination_country || '—') + '</p>';
+            }
+            html += '<p><strong>' + statusLabel + '</strong>' + escapeHtmlTrack(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            if (cps.length === 0) {
+                html += '<p>' + t2.msg_track_no_trail + '</p>';
+                resDiv.innerHTML = html;
+                return;
+            }
+            for (var ci = cps.length - 1; ci >= 0; ci--) {
+                var tk = cps[ci];
+                var ts = (tk.time_stamp || '') + (tk.time_zone ? ' (' + tk.time_zone + ')' : '');
+                var desc = tk.message || tk.tracking_status || '';
+                var loc = tk.location ? (' · ' + tk.location) : '';
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + escapeHtmlTrack(desc + loc) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -876,7 +981,7 @@
         async function fetchTrackProxyPost(payload) {
             var r = await fetch(TRACK_PROXY, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify(payload)
             });
             var text = await r.text();
@@ -893,12 +998,14 @@
             }
             resDiv.style.display = 'block';
             resDiv.innerHTML = '<p>' + t.msg_track_loading + '</p>';
+            var providerEl = document.querySelector('input[name="trackProvider"]:checked');
+            var provider = providerEl ? providerEl.value : 'speedaf';
             try {
                 var raw;
                 var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
                 if (useRemoteProxy) {
                     try {
-                        var pr = await fetchTrackProxyPost({ mailNoList: [num] });
+                        var pr = await fetchTrackProxyPost({ mailNoList: [num], provider: provider });
                         if (!pr.ok) {
                             resDiv.innerHTML = '<p><strong>HTTP ' + pr.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px;word-break:break-all">' + escapeHtmlTrack(pr.text) + '</pre><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
                             return;
@@ -914,6 +1021,10 @@
                         return;
                     }
                 } else {
+                    if (provider === 'yanwen') {
+                        resDiv.innerHTML = '<p>' + t.msg_track_fail + '</p><p style="margin-top:10px;font-size:13px;color:#666">' + (t.msg_track_path2_need_proxy || '') + '</p>';
+                        return;
+                    }
                     var built = buildSpeedafEncryptedBody([num]);
                     var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
                         method: 'POST',
@@ -926,7 +1037,11 @@
                         raw = JSON.parse(decrypted);
                     }
                 }
-                renderSpeedafResponse(raw, num, resDiv);
+                if (provider === 'yanwen') {
+                    renderYanwenResponse(raw, num, resDiv);
+                } else {
+                    renderSpeedafResponse(raw, num, resDiv);
+                }
             } catch (e) {
                 resDiv.innerHTML = '<p>' + t.msg_track_fail + '</p>';
             }

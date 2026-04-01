@@ -2,6 +2,9 @@
   "name": "hkxh-track",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "baidu-push": "node scripts/baidu-push-urls.js"
+  },
   "dependencies": {
     "crypto-js": "^4.2.0"
   }
