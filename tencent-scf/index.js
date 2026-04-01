@@ -74,6 +74,36 @@ function serializeErrorChain(err) {
   return parts.join(' | ');
 }
 
+function isSpeedafEffectivelyEmpty(raw) {
+  if (raw == null) return true;
+  if (typeof raw.success === 'boolean' && !raw.success) return true;
+  let data = raw;
+  if (raw.data !== undefined) data = raw.data;
+  if (!Array.isArray(data) || data.length === 0) return true;
+  const tracks = data[0] && data[0].tracks;
+  return !Array.isArray(tracks) || tracks.length === 0;
+}
+
+function isYanwenHasUsableResult(yw) {
+  if (!yw || (yw.code !== 0 && yw.code !== '0')) return false;
+  return Array.isArray(yw.result) && yw.result.length > 0;
+}
+
+async function resolveAutoTrack(mailNoList) {
+  const speedafRaw = await callSpeedaf(mailNoList);
+  if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
+  if (!YW56_AUTHORIZATION) return speedafRaw;
+  try {
+    const yw = await callYanwenTracking(mailNoList);
+    if (isYanwenHasUsableResult(yw)) {
+      return { __autoProvider: 'yanwen', ...yw };
+    }
+  } catch (err) {
+    console.error('[scf/track] auto fallback yanwen:', err.message || err);
+  }
+  return speedafRaw;
+}
+
 async function callYanwenTracking(mailNoList) {
   if (!YW56_AUTHORIZATION) {
     throw new Error(
@@ -183,7 +213,7 @@ exports.main_handler = async (event) => {
     return jsonResponse(200, {
       ok: true,
       service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen',
-      note: 'POST application/json，速达非: { mailNoList } 或 { trackingNumber }；燕文: { "provider":"yanwen", "trackingNumber":"单号" }',
+      note: 'POST JSON：{ trackingNumber } 默认速达非；{ provider:"auto" } 先速达非再无轨迹则燕文；{ provider:"yanwen" } 仅燕文',
     });
   }
 
@@ -212,7 +242,9 @@ exports.main_handler = async (event) => {
 
   try {
     let data;
-    if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
+    if (provider === 'auto' || provider === 'merge') {
+      data = await resolveAutoTrack(mailNoList);
+    } else if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
       data = await callYanwenTracking(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);

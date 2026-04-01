@@ -216,30 +216,6 @@
             margin: 0 auto;
         }
 
-        .track-provider-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 20px;
-            margin-bottom: 14px;
-            font-size: 15px;
-            color: var(--text);
-        }
-
-        .track-provider-row label {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            font-weight: 500;
-        }
-
-        .track-provider-row input[type="radio"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--primary);
-        }
-
         .track-form {
             display: flex;
             gap: 12px;
@@ -520,22 +496,10 @@
             <h2 class="section-title" data-i18n="track_title">物流单号查询</h2>
             <p class="section-subtitle" data-i18n="track_subtitle">输入您的单号，一键查询最新物流状态</p>
             <div class="track-box">
-                <form onsubmit="trackPackage(event)">
-                    <div class="track-provider-row">
-                        <label>
-                            <input type="radio" name="trackProvider" value="speedaf" checked>
-                            <span data-i18n="track_provider_speedaf">路径1</span>
-                        </label>
-                        <label>
-                            <input type="radio" name="trackProvider" value="yanwen">
-                            <span data-i18n="track_provider_yanwen">路径2</span>
-                        </label>
-                    </div>
-                    <div class="track-form">
-                        <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
-                            placeholder="请输入您的物流单号" required>
-                        <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
-                    </div>
+                <form class="track-form" onsubmit="trackPackage(event)">
+                    <input type="text" id="trackingNumber" class="track-input" data-i18n-placeholder="track_placeholder"
+                        placeholder="请输入您的物流单号" required>
+                    <button type="submit" class="btn btn-primary" data-i18n="track_btn">立即查询</button>
                 </form>
                 <div id="trackResult" class="track-result"></div>
             </div>
@@ -637,8 +601,6 @@
                 track_title: '物流单号查询',
                 track_subtitle: '输入您的单号，一键查询最新物流状态',
                 track_placeholder: '请输入您的物流单号',
-                track_provider_speedaf: '路径1',
-                track_provider_yanwen: '路径2',
                 track_btn: '立即查询',
                 contact_title: '联系我们',
                 contact_subtitle: '专业团队随时为您提供支持与服务',
@@ -708,8 +670,6 @@
                 track_title: 'Track Your Shipment',
                 track_subtitle: 'Enter your tracking number to see the latest status',
                 track_placeholder: 'Enter tracking number',
-                track_provider_speedaf: 'Path 1',
-                track_provider_yanwen: 'Path 2',
                 track_btn: 'Track',
                 contact_title: 'Contact Us',
                 contact_subtitle: 'Our team is ready to support you',
@@ -1010,14 +970,12 @@
             }
             resDiv.style.display = 'block';
             resDiv.innerHTML = '<p>' + t.msg_track_loading + '</p>';
-            var providerEl = document.querySelector('input[name="trackProvider"]:checked');
-            var provider = providerEl ? providerEl.value : 'speedaf';
             try {
                 var raw;
                 var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
                 if (useRemoteProxy) {
                     try {
-                        var pr = await fetchTrackProxyPost({ mailNoList: [num], provider: provider });
+                        var pr = await fetchTrackProxyPost({ mailNoList: [num], provider: 'auto' });
                         if (!pr.ok) {
                             resDiv.innerHTML = '<p><strong>HTTP ' + pr.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px;word-break:break-all">' + escapeHtmlTrack(pr.text) + '</pre><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
                             return;
@@ -1033,10 +991,6 @@
                         return;
                     }
                 } else {
-                    if (provider === 'yanwen') {
-                        resDiv.innerHTML = '<p>' + t.msg_track_fail + '</p><p style="margin-top:10px;font-size:13px;color:#666">' + (t.msg_track_path2_need_proxy || '') + '</p>';
-                        return;
-                    }
                     var built = buildSpeedafEncryptedBody([num]);
                     var resp = await fetch(getSpeedafTrackUrl(built.timestampMs), {
                         method: 'POST',
@@ -1049,8 +1003,10 @@
                         raw = JSON.parse(decrypted);
                     }
                 }
-                if (provider === 'yanwen') {
-                    renderYanwenResponse(raw, num, resDiv);
+                if (raw && raw.__autoProvider === 'yanwen') {
+                    var ywRaw = Object.assign({}, raw);
+                    delete ywRaw.__autoProvider;
+                    renderYanwenResponse(ywRaw, num, resDiv);
                 } else {
                     renderSpeedafResponse(raw, num, resDiv);
                 }

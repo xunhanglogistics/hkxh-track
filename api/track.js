@@ -2,7 +2,8 @@
  * Vercel Serverless 代理：转发轨迹查询到 Speedaf / 燕文，解决浏览器 CORS 与燕文 Authorization 外露问题
  * 前端 POST /api/track
  *   Speedaf: { provider: "speedaf"（可省略）, mailNoList: ["单号"] } 或 { trackingNumber }
- *   燕文: { provider: "yanwen", trackingNumber }（见 https://opendocs.yw56.com.cn 物流轨迹查询）
+ *   合并查询: { provider: "auto", trackingNumber } — 先速达非，无有效轨迹且已配 YW56 时再燕文
+ *   仅燕文: { provider: "yanwen", trackingNumber }
  *
  * 环境变量 YW56_AUTHORIZATION：燕文轨迹接口 Header 中的「商户号」或「制单账号」（与开放订单 API 的 apitoken 不同）
  */
@@ -240,6 +241,36 @@ function httpOrHttpsGetText(urlString, headers) {
   });
 }
 
+function isSpeedafEffectivelyEmpty(raw) {
+  if (raw == null) return true;
+  if (typeof raw.success === 'boolean' && !raw.success) return true;
+  let data = raw;
+  if (raw.data !== undefined) data = raw.data;
+  if (!Array.isArray(data) || data.length === 0) return true;
+  const tracks = data[0] && data[0].tracks;
+  return !Array.isArray(tracks) || tracks.length === 0;
+}
+
+function isYanwenHasUsableResult(yw) {
+  if (!yw || (yw.code !== 0 && yw.code !== '0')) return false;
+  return Array.isArray(yw.result) && yw.result.length > 0;
+}
+
+async function resolveAutoTrack(mailNoList) {
+  const speedafRaw = await callSpeedaf(mailNoList);
+  if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
+  if (!YW56_AUTHORIZATION) return speedafRaw;
+  try {
+    const yw = await callYanwenTracking(mailNoList);
+    if (isYanwenHasUsableResult(yw)) {
+      return { __autoProvider: 'yanwen', ...yw };
+    }
+  } catch (err) {
+    console.error('[api/track] auto fallback yanwen:', err.message || err);
+  }
+  return speedafRaw;
+}
+
 async function callYanwenTracking(mailNoList) {
   if (!YW56_AUTHORIZATION) {
     throw new Error(
@@ -336,6 +367,10 @@ module.exports = async (req, res) => {
         bodyExample: { trackingNumber: 'YOUR_MAIL_NO' },
         bodyExampleAlt: { mailNoList: ['YOUR_MAIL_NO'] },
         bodyYanwen: { provider: 'yanwen', trackingNumber: 'YOUR_YW_NO' },
+        bodyAuto: {
+          provider: 'auto',
+          trackingNumber: 'SINGLE_ENTRY_TRY_SPEEDAF_THEN_YANWEN',
+        },
       },
     });
     return;
@@ -366,7 +401,9 @@ module.exports = async (req, res) => {
     .trim();
   try {
     let data;
-    if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
+    if (provider === 'auto' || provider === 'merge') {
+      data = await resolveAutoTrack(mailNoList);
+    } else if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
       data = await callYanwenTracking(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
