@@ -907,12 +907,10 @@
             var latest = cps.length > 0 ? cps[cps.length - 1] : null;
             var status = latest ? (latest.message || latest.tracking_status || '') : t2.msg_track_no_status;
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
-            var waybillLabel = currentLang === 'zh' ? '主单号：' : 'Waybill: ';
             var exchLabel = currentLang === 'zh' ? '尾程单号：' : 'Last-mile no.: ';
             var routeLabel = currentLang === 'zh' ? '线路：' : 'Route: ';
             var statusLabel = currentLang === 'zh' ? '最新状态：' : 'Latest status: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            if (item.waybill_number) html += '<p><strong>' + waybillLabel + '</strong>' + escapeHtmlTrack(item.waybill_number) + '</p>';
             if (item.exchange_number) html += '<p><strong>' + exchLabel + '</strong>' + escapeHtmlTrack(item.exchange_number) + '</p>';
             if (item.origin_country || item.destination_country) {
                 html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(item.origin_country || '—') + ' → ' + escapeHtmlTrack(item.destination_country || '—') + '</p>';
