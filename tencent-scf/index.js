@@ -16,8 +16,9 @@ const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
 const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
+/** 文档正式环境为 http://；自行设 YW56_TRACK_BASE 可改为 https 等 */
 const YW56_TRACK_BASE =
-  process.env.YW56_TRACK_BASE || 'https://api.track.yw56.com.cn/api/tracking';
+  process.env.YW56_TRACK_BASE || 'http://api.track.yw56.com.cn/api/tracking';
 const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 function md5(str) {

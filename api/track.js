@@ -8,6 +8,7 @@
  */
 const crypto = require('crypto');
 const dns = require('dns');
+const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const CryptoJS = require('crypto-js');
@@ -30,9 +31,12 @@ const SECRET_KEY = process.env.SPEEDAF_SECRET_KEY || 'Ty2pi72K';
 /** 正式环境见文档：https://apis.speedaf.com/doc/zh-cn/track_query.html */
 const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 
-/** 燕文物流轨迹（GET + Authorization），文档：开放平台 → 小包专线 → 物流轨迹查询 */
+/**
+ * 燕文轨迹接口：官方文档正式环境为 http://（非 https）。用 https 时常见证书与主机名不匹配
+ * （解析到 CDN 通配证书）。需 https 时可设环境变量 YW56_TRACK_BASE。
+ */
 const YW56_TRACK_BASE =
-  process.env.YW56_TRACK_BASE || 'https://api.track.yw56.com.cn/api/tracking';
+  process.env.YW56_TRACK_BASE || 'http://api.track.yw56.com.cn/api/tracking';
 const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 function md5(str) {
@@ -206,21 +210,22 @@ async function httpsPostSpeedaf(urlString, plainBody) {
   return httpsPostToIp(urlString, plainBody, address);
 }
 
-function httpsGetText(urlString, headers) {
+function httpOrHttpsGetText(urlString, headers) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlString);
-    const reqHeaders = {
-      Host: u.hostname,
-      ...(headers || {}),
-    };
+    const isHttps = u.protocol === 'https:';
+    const defaultPort = isHttps ? 443 : 80;
+    const port = u.port ? Number(u.port) : defaultPort;
+    const lib = isHttps ? https : http;
+    const hostHeader = u.port ? `${u.hostname}:${u.port}` : u.hostname;
     const opts = {
       hostname: u.hostname,
-      port: u.port || 443,
+      port,
       path: `${u.pathname}${u.search}`,
       method: 'GET',
-      headers: reqHeaders,
+      headers: { Host: hostHeader, ...(headers || {}) },
     };
-    const req = https.request(opts, (res) => {
+    const req = lib.request(opts, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -245,7 +250,7 @@ async function callYanwenTracking(mailNoList) {
   if (!list.length) throw new Error('Empty tracking numbers');
   const nums = list.join(',');
   const url = `${YW56_TRACK_BASE.replace(/\/$/, '')}?nums=${encodeURIComponent(nums)}`;
-  const { status, text } = await httpsGetText(url, {
+  const { status, text } = await httpOrHttpsGetText(url, {
     Authorization: YW56_AUTHORIZATION,
     Accept: 'application/json',
   });
