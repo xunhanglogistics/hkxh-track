@@ -880,7 +880,7 @@
                 if (msg.toLowerCase().indexOf('timeout') !== -1 && t.msg_track_timeout_hint) {
                     hint = '<p style="margin-top:12px;font-size:13px;color:#666">' + t.msg_track_timeout_hint + '</p>';
                 }
-                resDiv.innerHTML = '<p>' + (msg.replace(/</g, '&lt;')) + (code ? ' <span style="color:#999">(' + code + ')</span>' : '') + '</p>' + hint;
+                resDiv.innerHTML = '<p>' + displayTrackLine(msg) + (code ? ' <span style="color:#999">(' + code + ')</span>' : '') + '</p>' + hint;
                 return;
             }
             if (raw && raw.data !== undefined) data = raw.data;
@@ -895,11 +895,11 @@
             var status = tracks.length > 0 ? tracks[0].actionName : t2.msg_track_no_status;
             var numLabel = currentLang === 'zh' ? '单号：' : 'Tracking: ';
             var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
-            var html = '<h3>' + numLabel + mailNo + '</h3><p><strong>' + statusLabel + '</strong>' + status + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            var html = '<h3>' + numLabel + mailNo + '</h3><p><strong>' + statusLabel + '</strong>' + displayTrackLine(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
             if (tracks.length > 0) {
                 tracks.forEach(function (tk) {
                     var desc = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
-                    var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + (desc ? desc.replace(/</g, '&lt;') : '') + '</div>';
+                    var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + displayTrackLine(desc) + '</div>';
                     if (tk.pictureUrl) block += ' <a href="' + tk.pictureUrl + '" target="_blank" rel="noopener">' + t2.msg_track_view_pic + '</a>';
                     block += '</div>';
                     html += block;
@@ -914,13 +914,13 @@
             var t2 = I18N[currentLang] || I18N.zh;
             if (raw && typeof raw.success === 'boolean' && !raw.success && raw.error) {
                 var msg = (raw.error && raw.error.message) ? raw.error.message : t2.msg_track_fail;
-                resDiv.innerHTML = '<p>' + escapeHtmlTrack(msg) + '</p>';
+                resDiv.innerHTML = '<p>' + displayTrackLine(msg) + '</p>';
                 return;
             }
             var ok = raw && (raw.code === 0 || raw.code === '0');
             if (!ok) {
                 var m = (raw && raw.message) ? String(raw.message) : t2.msg_track_no_result;
-                resDiv.innerHTML = '<p>' + escapeHtmlTrack(m) + '</p>';
+                resDiv.innerHTML = '<p>' + displayTrackLine(m) + '</p>';
                 return;
             }
             var result = raw.result;
@@ -957,7 +957,7 @@
             if (item.origin_country || item.destination_country) {
                 html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(item.origin_country || '—') + ' → ' + escapeHtmlTrack(item.destination_country || '—') + '</p>';
             }
-            html += '<p><strong>' + statusLabel + '</strong>' + escapeHtmlTrack(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
             if (cps.length === 0) {
                 html += '<p>' + t2.msg_track_no_trail + '</p>';
                 resDiv.innerHTML = html;
@@ -968,15 +968,27 @@
                 var ts = (tk.time_stamp || '') + (tk.time_zone ? ' (' + tk.time_zone + ')' : '');
                 var desc = tk.message || tk.tracking_status || '';
                 var loc = tk.location ? (' · ' + tk.location) : '';
-                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + escapeHtmlTrack(desc + loc) + '</div></div>';
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(desc + loc) + '</div></div>';
             }
             resDiv.innerHTML = html;
         }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
+        /** 展示前去品牌词，避免轨迹正文中出现承运商名称 */
+        function sanitizeTrackDisplayText(s) {
+            if (s == null || s === '') return '';
+            var t = String(s);
+            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ');
+            t = t.replace(/燕文/g, '').replace(/速达非/g, '');
+            t = t.replace(/\s{2,}/g, ' ').replace(/\s+([\.|,|;|:|\-])/g, '$1').replace(/([\(])\s+/g, '$1').replace(/\s+([\)])/g, '$1');
+            return t.replace(/^\s+|\s+$/g, '');
+        }
         function escapeHtmlTrack(s) {
             return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        function displayTrackLine(s) {
+            return escapeHtmlTrack(sanitizeTrackDisplayText(s));
         }
         async function fetchTrackProxyPost(payload) {
             var r = await fetch(TRACK_PROXY, {
