@@ -1,0 +1,9 @@
+{
+  "Verify": {
+    "Clientid": "请替换为你的客户编码",
+    "Token": "请替换为你的Token"
+  },
+  "Datas": [
+    { "TrackNumber": "1802071228" }
+  ]
+}

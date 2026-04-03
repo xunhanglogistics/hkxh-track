@@ -7,7 +7,7 @@
  *
  * 环境变量:
  *   YW56_AUTHORIZATION — 燕文轨迹 Authorization
- *   KINGTRANS_API_BASE — 可选覆盖；默认 http://fhex.kingtrans.cn
+ *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（接口仅支持 POST，地址栏 GET 会 405）
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
  */
 const crypto = require('crypto');
@@ -44,7 +44,7 @@ const YW56_TRACK_BASE =
 const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 const KINGTRANS_API_BASE = (
-  process.env.KINGTRANS_API_BASE || 'http://fhex.kingtrans.cn'
+  process.env.KINGTRANS_API_BASE || 'https://fhex.kingtrans.cn'
 ).trim().replace(/\/$/, '');
 const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();

@@ -23,7 +23,7 @@ const YW56_TRACK_BASE =
 const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
 
 const KINGTRANS_API_BASE = (
-  process.env.KINGTRANS_API_BASE || 'http://fhex.kingtrans.cn'
+  process.env.KINGTRANS_API_BASE || 'https://fhex.kingtrans.cn'
 ).trim().replace(/\/$/, '');
 const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
@@ -118,7 +118,7 @@ function isKingtransHasUsableResult(raw) {
 async function callKingtransTrack(mailNoList) {
   if (!kingtransEnvReady()) {
     throw new Error(
-      '未配置 KINGTRANS_CLIENT_ID / KINGTRANS_TOKEN（API 根地址默认 http://fhex.kingtrans.cn）'
+      '未配置 KINGTRANS_CLIENT_ID / KINGTRANS_TOKEN（API 根地址默认 https://fhex.kingtrans.cn）'
     );
   }
   const url = `${KINGTRANS_API_BASE}/PostInterfaceService?method=searchTrack`;
