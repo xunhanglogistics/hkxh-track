@@ -299,9 +299,15 @@ function isSpeedafEffectivelyEmpty(raw) {
   return !Array.isArray(tracks) || tracks.length === 0;
 }
 
+/** 仅 result 非空不够：燕文可能对非本渠道单号返回壳数据但 checkpoints 为空，需让后续 Kingtrans 有机会查询 */
 function isYanwenHasUsableResult(yw) {
   if (!yw || (yw.code !== 0 && yw.code !== '0')) return false;
-  return Array.isArray(yw.result) && yw.result.length > 0;
+  if (!Array.isArray(yw.result) || yw.result.length === 0) return false;
+  return yw.result.some((r) => {
+    if (!r) return false;
+    const cps = r.checkpoints;
+    return Array.isArray(cps) && cps.length > 0;
+  });
 }
 
 function kingtransEnvReady() {

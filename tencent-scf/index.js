@@ -93,7 +93,12 @@ function isSpeedafEffectivelyEmpty(raw) {
 
 function isYanwenHasUsableResult(yw) {
   if (!yw || (yw.code !== 0 && yw.code !== '0')) return false;
-  return Array.isArray(yw.result) && yw.result.length > 0;
+  if (!Array.isArray(yw.result) || yw.result.length === 0) return false;
+  return yw.result.some((r) => {
+    if (!r) return false;
+    const cps = r.checkpoints;
+    return Array.isArray(cps) && cps.length > 0;
+  });
 }
 
 function kingtransEnvReady() {
