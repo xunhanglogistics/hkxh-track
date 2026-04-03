@@ -10,6 +10,7 @@
  *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（接口仅支持 POST，地址栏 GET 会 405）
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
  *   SZ56T_API_BASE — 华磊/sz56t 的 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
+ *       （依赖 iconv-lite：响应体多为 GB18030/GBK，代理内自动择码再 JSON.parse，避免中文乱码）
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -17,6 +18,7 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const CryptoJS = require('crypto-js');
+const iconv = require('iconv-lite');
 
 /**
  * ENOTFOUND 时检查域名是否为官方 **apis.speedaf.com**（带 s），勿用 api.speedaf.com。
@@ -320,13 +322,60 @@ function httpPostEmpty(urlString) {
       res.on('end', () => {
         resolve({
           status: res.statusCode || 0,
-          text: Buffer.concat(chunks).toString('utf8'),
+          buffer: Buffer.concat(chunks),
         });
       });
     });
     req.on('error', reject);
     req.end();
   });
+}
+
+/** 华磊 JSON 常为 GB18030/GBK 字节，按 UTF-8 解会中文乱码；在可解析前提下选 CJK 更多的解码 */
+function scoreCjkCharsInJsonTree(obj) {
+  let n = 0;
+  const visit = (v) => {
+    if (typeof v === 'string') {
+      for (let i = 0; i < v.length; i++) {
+        const c = v.charCodeAt(i);
+        if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf)) n += 1;
+      }
+    } else if (Array.isArray(v)) {
+      for (let k = 0; k < v.length; k++) visit(v[k]);
+    } else if (v && typeof v === 'object') {
+      const keys = Object.keys(v);
+      for (let k = 0; k < keys.length; k++) visit(v[keys[k]]);
+    }
+  };
+  visit(obj);
+  return n;
+}
+
+function decodeSz56tJsonBuffer(buf) {
+  if (!buf || buf.length === 0) return '';
+  const utf8 = buf.toString('utf8');
+  const gbStr = iconv.decode(buf, 'gb18030');
+  let utfParsed = null;
+  let gbParsed = null;
+  try {
+    utfParsed = JSON.parse(utf8);
+  } catch (_) {
+    utfParsed = null;
+  }
+  try {
+    gbParsed = JSON.parse(gbStr);
+  } catch (_) {
+    gbParsed = null;
+  }
+  if (gbParsed && !utfParsed) return gbStr;
+  if (utfParsed && !gbParsed) return utf8;
+  if (!utfParsed && !gbParsed) return utf8;
+  if (utfParsed && gbParsed) {
+    const su = scoreCjkCharsInJsonTree(utfParsed);
+    const sg = scoreCjkCharsInJsonTree(gbParsed);
+    if (sg > su) return gbStr;
+  }
+  return utf8;
 }
 
 function isSpeedafEffectivelyEmpty(raw) {
@@ -439,7 +488,8 @@ async function callSz56tTrack(mailNoList) {
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
   const url = `${SZ56T_API_BASE}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
-  const { status, text } = await httpPostEmpty(url);
+  const { status, buffer } = await httpPostEmpty(url);
+  const text = decodeSz56tJsonBuffer(buffer);
   let raw;
   try {
     raw = text ? JSON.parse(text) : [];

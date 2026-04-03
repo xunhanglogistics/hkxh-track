@@ -12,6 +12,7 @@
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
+const iconv = require('iconv-lite');
 
 const DES_IV_HEX = '1234567890abcdef';
 const APP_CODE = process.env.SPEEDAF_APP_CODE || 'CN000796';
@@ -191,6 +192,52 @@ async function callKingtransTrack(mailNoList) {
   return raw;
 }
 
+function scoreCjkCharsInJsonTree(obj) {
+  let n = 0;
+  const visit = (v) => {
+    if (typeof v === 'string') {
+      for (let i = 0; i < v.length; i++) {
+        const c = v.charCodeAt(i);
+        if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf)) n += 1;
+      }
+    } else if (Array.isArray(v)) {
+      for (let k = 0; k < v.length; k++) visit(v[k]);
+    } else if (v && typeof v === 'object') {
+      const keys = Object.keys(v);
+      for (let k = 0; k < keys.length; k++) visit(v[keys[k]]);
+    }
+  };
+  visit(obj);
+  return n;
+}
+
+function decodeSz56tJsonBuffer(buf) {
+  if (!buf || buf.length === 0) return '';
+  const utf8 = buf.toString('utf8');
+  const gbStr = iconv.decode(buf, 'gb18030');
+  let utfParsed = null;
+  let gbParsed = null;
+  try {
+    utfParsed = JSON.parse(utf8);
+  } catch (_) {
+    utfParsed = null;
+  }
+  try {
+    gbParsed = JSON.parse(gbStr);
+  } catch (_) {
+    gbParsed = null;
+  }
+  if (gbParsed && !utfParsed) return gbStr;
+  if (utfParsed && !gbParsed) return utf8;
+  if (!utfParsed && !gbParsed) return utf8;
+  if (utfParsed && gbParsed) {
+    const su = scoreCjkCharsInJsonTree(utfParsed);
+    const sg = scoreCjkCharsInJsonTree(gbParsed);
+    if (sg > su) return gbStr;
+  }
+  return utf8;
+}
+
 /** 华磊 selectTrack.htm：POST，documentCode 在 query；空 body */
 async function callSz56tTrack(mailNoList) {
   if (!sz56tEnvReady()) {
@@ -205,7 +252,8 @@ async function callSz56tTrack(mailNoList) {
     method: 'POST',
     headers: { Accept: '*/*' },
   });
-  const text = await res.text();
+  const buf = Buffer.from(await res.arrayBuffer());
+  const text = decodeSz56tJsonBuffer(buf);
   let raw;
   try {
     raw = text ? JSON.parse(text) : [];
