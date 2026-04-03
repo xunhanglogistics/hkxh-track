@@ -6,7 +6,8 @@
  *
  * 环境变量（函数配置 → 环境变量）：
  * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（速达非）
- * YW56_AUTHORIZATION（燕文轨迹 GET 的 Authorization：商户号或制单账号，与订单 apitoken 不同）
+ * YW56_AUTHORIZATION（燕文）
+ * KINGTRANS_API_BASE、KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN（K5 searchTrack）
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
@@ -20,6 +21,12 @@ const SPEEDAF_URL = 'https://apis.speedaf.com/open-api/express/track/query';
 const YW56_TRACK_BASE =
   process.env.YW56_TRACK_BASE || 'http://api.track.yw56.com.cn/api/tracking';
 const YW56_AUTHORIZATION = process.env.YW56_AUTHORIZATION || '';
+
+const KINGTRANS_API_BASE = (
+  process.env.KINGTRANS_API_BASE || 'http://fhex.kingtrans.cn'
+).trim().replace(/\/$/, '');
+const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
+const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -89,18 +96,91 @@ function isYanwenHasUsableResult(yw) {
   return Array.isArray(yw.result) && yw.result.length > 0;
 }
 
+function kingtransEnvReady() {
+  return !!(KINGTRANS_API_BASE && KINGTRANS_CLIENT_ID && KINGTRANS_TOKEN);
+}
+
+function isKingtransHasUsableResult(raw) {
+  if (!raw) return false;
+  const sc = String(raw.statusCode || '').toLowerCase();
+  if (sc && sc !== 'success') return false;
+  const rd = raw.returnDatas;
+  if (!Array.isArray(rd) || rd.length === 0) return false;
+  const first = rd[0];
+  const isc = String(first.statusCode || '').toLowerCase();
+  if (isc && isc !== 'success') return false;
+  const items = first.items;
+  if (Array.isArray(items) && items.length > 0) return true;
+  if (first.track && (first.track.status || first.track.dateTime)) return true;
+  return false;
+}
+
+async function callKingtransTrack(mailNoList) {
+  if (!kingtransEnvReady()) {
+    throw new Error(
+      '未配置 KINGTRANS_CLIENT_ID / KINGTRANS_TOKEN（API 根地址默认 http://fhex.kingtrans.cn）'
+    );
+  }
+  const url = `${KINGTRANS_API_BASE}/PostInterfaceService?method=searchTrack`;
+  const Datas = mailNoList
+    .slice(0, 30)
+    .map((s) => String(s).trim())
+    .filter(Boolean)
+    .map((TrackNumber) => ({ TrackNumber }));
+  if (!Datas.length) throw new Error('Empty tracking numbers');
+  const payload = {
+    Verify: { Clientid: KINGTRANS_CLIENT_ID, Token: KINGTRANS_TOKEN },
+    Datas,
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json;charset=UTF-8',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`Kingtrans non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(
+      `Kingtrans HTTP ${res.status}: ${(raw && raw.message) || text.slice(0, 200)}`
+    );
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
-  if (!YW56_AUTHORIZATION) return speedafRaw;
-  try {
-    const yw = await callYanwenTracking(mailNoList);
-    if (isYanwenHasUsableResult(yw)) {
-      return { __autoProvider: 'yanwen', ...yw };
+
+  if (YW56_AUTHORIZATION) {
+    try {
+      const yw = await callYanwenTracking(mailNoList);
+      if (isYanwenHasUsableResult(yw)) {
+        return { __autoProvider: 'yanwen', ...yw };
+      }
+    } catch (err) {
+      console.error('[scf/track] auto fallback yanwen:', err.message || err);
     }
-  } catch (err) {
-    console.error('[scf/track] auto fallback yanwen:', err.message || err);
   }
+
+  if (kingtransEnvReady()) {
+    try {
+      const kt = await callKingtransTrack(mailNoList);
+      if (isKingtransHasUsableResult(kt)) {
+        return { __autoProvider: 'kingtrans', ...kt };
+      }
+    } catch (err) {
+      console.error('[scf/track] auto fallback kingtrans:', err.message || err);
+    }
+  }
+
   return speedafRaw;
 }
 
@@ -212,8 +292,8 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen',
-      note: 'POST JSON：{ trackingNumber } 默认速达非；{ provider:"auto" } 先速达非再无轨迹则燕文；{ provider:"yanwen" } 仅燕文',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans',
+      note: 'POST：provider auto 依次速达非/燕文/Kingtrans；kingtrans 仅 K5；见 api.kingtrans.net',
     });
   }
 
@@ -246,6 +326,8 @@ exports.main_handler = async (event) => {
       data = await resolveAutoTrack(mailNoList);
     } else if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
       data = await callYanwenTracking(mailNoList);
+    } else if (provider === 'kingtrans' || provider === 'k5') {
+      data = await callKingtransTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

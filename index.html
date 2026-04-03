@@ -930,6 +930,59 @@
             }
             resDiv.innerHTML = html;
         }
+        /** Kingtrans K5 searchTrack：statusCode、returnDatas[].track / items[] */
+        function renderKingtransResponse(raw, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (raw && typeof raw.success === 'boolean' && !raw.success && raw.error) {
+                var em = (raw.error && raw.error.message) ? raw.error.message : t2.msg_track_fail;
+                resDiv.innerHTML = '<p>' + displayTrackLine(em) + '</p>';
+                return;
+            }
+            var topSc = String(raw.statusCode || '').toLowerCase();
+            if (topSc === 'error') {
+                resDiv.innerHTML = '<p>' + displayTrackLine(raw.message || t2.msg_track_no_result) + '</p>';
+                return;
+            }
+            var rd = raw.returnDatas;
+            if (!Array.isArray(rd) || rd.length === 0) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var row = rd[0];
+            var rowSc = String(row.statusCode || '').toLowerCase();
+            if (rowSc === 'error') {
+                resDiv.innerHTML = '<p>' + displayTrackLine(row.message || t2.msg_track_no_result) + '</p>';
+                return;
+            }
+            var tr = row.track || {};
+            var items = Array.isArray(row.items) ? row.items.slice() : [];
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var billLabel = currentLang === 'zh' ? '运单号：' : 'Bill: ';
+            var transLabel = currentLang === 'zh' ? '转单号：' : 'Transfer no.: ';
+            var routeLabel = currentLang === 'zh' ? '线路：' : 'Route: ';
+            var statusLabel = currentLang === 'zh' ? '概要状态：' : 'Summary: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            if (tr.billid) html += '<p><strong>' + billLabel + '</strong>' + escapeHtmlTrack(tr.billid) + '</p>';
+            if (tr.transBillid) html += '<p><strong>' + transLabel + '</strong>' + escapeHtmlTrack(tr.transBillid) + '</p>';
+            if (tr.country || tr.destination) {
+                html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(tr.country || '—') + ' · ' + escapeHtmlTrack(tr.destination || '—') + '</p>';
+            }
+            var sumStatus = (tr.status || tr.dateTime) ? (tr.status || '') + (tr.dateTime ? ' · ' + tr.dateTime : '') : t2.msg_track_no_status;
+            html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine(sumStatus) + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            if (items.length === 0) {
+                html += '<p>' + t2.msg_track_no_trail + '</p>';
+                resDiv.innerHTML = html;
+                return;
+            }
+            var i;
+            for (i = items.length - 1; i >= 0; i--) {
+                var it = items[i];
+                var ts = it.dateTime || '';
+                var line = (it.info || '') + (it.location ? (' · ' + it.location) : '');
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -937,7 +990,7 @@
         function sanitizeTrackDisplayText(s) {
             if (s == null || s === '') return '';
             var t = String(s);
-            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ');
+            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ').replace(/\bKingtrans\b/gi, ' ');
             t = t.replace(/燕文/g, '').replace(/速达非/g, '');
             t = t.replace(/\s{2,}/g, ' ').replace(/\s+([\.|,|;|:|\-])/g, '$1').replace(/([\(])\s+/g, '$1').replace(/\s+([\)])/g, '$1');
             return t.replace(/^\s+|\s+$/g, '');
@@ -1005,6 +1058,10 @@
                     var ywRaw = Object.assign({}, raw);
                     delete ywRaw.__autoProvider;
                     renderYanwenResponse(ywRaw, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'kingtrans') {
+                    var ktRaw = Object.assign({}, raw);
+                    delete ktRaw.__autoProvider;
+                    renderKingtransResponse(ktRaw, num, resDiv);
                 } else {
                     renderSpeedafResponse(raw, num, resDiv);
                 }
