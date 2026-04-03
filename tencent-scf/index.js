@@ -9,6 +9,7 @@
  * YW56_AUTHORIZATION（燕文）
  * KINGTRANS_API_BASE、KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN（K5 searchTrack）
  * SZ56T_API_BASE（华磊/sz56t URL1 根；POST …/selectTrack.htm?documentCode=）
+ * WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY（POST form gettrack，见货代 API 文档）
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
@@ -31,6 +32,10 @@ const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
 
 const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
+
+const WMS_SERVICE_URL = (process.env.WMS_SERVICE_URL || '').trim();
+const WMS_APP_TOKEN = (process.env.WMS_APP_TOKEN || '').trim();
+const WMS_APP_KEY = (process.env.WMS_APP_KEY || '').trim();
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -270,6 +275,52 @@ async function callSz56tTrack(mailNoList) {
   return raw;
 }
 
+function wmsEnvReady() {
+  return !!(WMS_SERVICE_URL && WMS_APP_TOKEN && WMS_APP_KEY);
+}
+
+function isWmsGetTrackUsable(raw) {
+  if (!raw || Number(raw.success) !== 1) return false;
+  const data = raw.data;
+  if (!Array.isArray(data) || data.length === 0) return false;
+  const first = data[0];
+  if (!first || typeof first !== 'object') return false;
+  const dets = first.details;
+  if (Array.isArray(dets) && dets.length > 0) return true;
+  if (first.track_status_name || first.server_hawbcode) return true;
+  return false;
+}
+
+async function callWmsGetTrack(mailNoList) {
+  if (!wmsEnvReady()) {
+    throw new Error('WMS gettrack 未配置：请设置 WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY');
+  }
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const paramsJson = JSON.stringify({ tracking_number: code });
+  const form = new URLSearchParams();
+  form.set('appToken', WMS_APP_TOKEN);
+  form.set('appKey', WMS_APP_KEY);
+  form.set('serviceMethod', 'gettrack');
+  form.set('paramsJson', paramsJson);
+  const res = await fetch(WMS_SERVICE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: form.toString(),
+  });
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`WMS gettrack non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(`WMS gettrack HTTP ${res.status}: ${(raw && raw.cnmessage) || text.slice(0, 200)}`);
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
@@ -304,6 +355,17 @@ async function resolveAutoTrack(mailNoList) {
       }
     } catch (err) {
       console.error('[scf/track] auto fallback sz56t:', err.message || err);
+    }
+  }
+
+  if (wmsEnvReady()) {
+    try {
+      const wms = await callWmsGetTrack(mailNoList);
+      if (isWmsGetTrackUsable(wms)) {
+        return { __autoProvider: 'wms', wms };
+      }
+    } catch (err) {
+      console.error('[scf/track] auto fallback wms gettrack:', err.message || err);
     }
   }
 
@@ -418,8 +480,8 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t',
-      note: 'POST：provider auto 依次速达非/燕文/Kingtrans/华磊(sz56t)；需 SZ56T_API_BASE 才走华磊',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t + WMS gettrack',
+      note: 'POST：provider auto 末尾可接 WMS gettrack（需 WMS_* 三个变量）',
     });
   }
 
@@ -456,6 +518,8 @@ exports.main_handler = async (event) => {
       data = await callKingtransTrack(mailNoList);
     } else if (provider === 'sz56t' || provider === 'hualei') {
       data = await callSz56tTrack(mailNoList);
+    } else if (provider === 'wms' || provider === 'gettrack') {
+      data = await callWmsGetTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

@@ -11,12 +11,16 @@
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
  *   SZ56T_API_BASE — 华磊/sz56t 的 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
  *       （依赖 iconv-lite：响应体多为 GB18030/GBK，代理内自动择码再 JSON.parse，避免中文乱码）
+ *   WMS_SERVICE_URL — WMS「获取订单跟踪记录」完整 POST 地址（…/PublicService.asmx/ServiceInterfaceUTF8）
+ *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
+ *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
  */
 const crypto = require('crypto');
 const dns = require('dns');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const querystring = require('querystring');
 const CryptoJS = require('crypto-js');
 const iconv = require('iconv-lite');
 
@@ -54,6 +58,10 @@ const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
 
 /** 华磊物流通 URL1（轨迹等），当前：http://hx.hailei2018.com:8082；仍以环境变量 SZ56T_API_BASE 为准 */
 const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
+
+const WMS_SERVICE_URL = (process.env.WMS_SERVICE_URL || '').trim();
+const WMS_APP_TOKEN = (process.env.WMS_APP_TOKEN || '').trim();
+const WMS_APP_KEY = (process.env.WMS_APP_KEY || '').trim();
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -295,6 +303,45 @@ function httpPostJson(urlString, bodyObj) {
   });
 }
 
+/** WMS：POST application/x-www-form-urlencoded */
+function httpPostFormUrlEncoded(urlString, bodyUtf8String) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const isHttps = u.protocol === 'https:';
+    const bodyBuf = Buffer.from(bodyUtf8String, 'utf8');
+    const lib = isHttps ? https : http;
+    const defaultPort = isHttps ? 443 : 80;
+    const port = u.port ? Number(u.port) : defaultPort;
+    const pathQuery = `${u.pathname}${u.search}`;
+    const hostHeader = u.port ? `${u.hostname}:${u.port}` : u.hostname;
+    const opts = {
+      hostname: u.hostname,
+      port,
+      path: pathQuery,
+      method: 'POST',
+      headers: {
+        Host: hostHeader,
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'Content-Length': String(bodyBuf.length),
+        Accept: 'application/json, text/plain, */*',
+      },
+    };
+    const req = lib.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
 /** 华磊 selectTrack.htm：文档要求 POST，参数在 query */
 function httpPostEmpty(urlString) {
   return new Promise((resolve, reject) => {
@@ -506,6 +553,50 @@ async function callSz56tTrack(mailNoList) {
   return raw;
 }
 
+function wmsEnvReady() {
+  return !!(WMS_SERVICE_URL && WMS_APP_TOKEN && WMS_APP_KEY);
+}
+
+function isWmsGetTrackUsable(raw) {
+  if (!raw || Number(raw.success) !== 1) return false;
+  const data = raw.data;
+  if (!Array.isArray(data) || data.length === 0) return false;
+  const first = data[0];
+  if (!first || typeof first !== 'object') return false;
+  const dets = first.details;
+  if (Array.isArray(dets) && dets.length > 0) return true;
+  if (first.track_status_name || first.server_hawbcode) return true;
+  return false;
+}
+
+async function callWmsGetTrack(mailNoList) {
+  if (!wmsEnvReady()) {
+    throw new Error(
+      'WMS gettrack 未配置：请在环境中设置 WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY'
+    );
+  }
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const paramsJson = JSON.stringify({ tracking_number: code });
+  const formBody = querystring.stringify({
+    appToken: WMS_APP_TOKEN,
+    appKey: WMS_APP_KEY,
+    serviceMethod: 'gettrack',
+    paramsJson,
+  });
+  const { status, text } = await httpPostFormUrlEncoded(WMS_SERVICE_URL, formBody);
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`WMS gettrack non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`WMS gettrack HTTP ${status}: ${(raw && raw.cnmessage) || text.slice(0, 200)}`);
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
@@ -540,6 +631,17 @@ async function resolveAutoTrack(mailNoList) {
       }
     } catch (err) {
       console.error('[api/track] auto fallback sz56t:', err.message || err);
+    }
+  }
+
+  if (wmsEnvReady()) {
+    try {
+      const wms = await callWmsGetTrack(mailNoList);
+      if (isWmsGetTrackUsable(wms)) {
+        return { __autoProvider: 'wms', wms };
+      }
+    } catch (err) {
+      console.error('[api/track] auto fallback wms gettrack:', err.message || err);
     }
   }
 
@@ -631,7 +733,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS gettrack proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -651,6 +753,11 @@ module.exports = async (req, res) => {
           provider: 'sz56t',
           trackingNumber: 'YOUR_NO',
           env: 'SZ56T_API_BASE required',
+        },
+        bodyWms: {
+          provider: 'wms',
+          trackingNumber: '服务商单号',
+          env: 'WMS_SERVICE_URL + WMS_APP_TOKEN + WMS_APP_KEY',
         },
       },
     });
@@ -690,6 +797,8 @@ module.exports = async (req, res) => {
       data = await callKingtransTrack(mailNoList);
     } else if (provider === 'sz56t' || provider === 'hualei') {
       data = await callSz56tTrack(mailNoList);
+    } else if (provider === 'wms' || provider === 'gettrack') {
+      data = await callWmsGetTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

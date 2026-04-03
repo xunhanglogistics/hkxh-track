@@ -1031,6 +1031,48 @@
         function isSz56tTrackArray(raw) {
             return Array.isArray(raw) && raw.length > 0 && raw[0] != null && Object.prototype.hasOwnProperty.call(raw[0], 'ack');
         }
+        /** WMS PublicService gettrack：success=1，data[].details[] */
+        function isWmsGetTrackPayload(raw) {
+            if (!raw || raw.data == null) return false;
+            if (Number(raw.success) !== 1) return false;
+            if (!Array.isArray(raw.data) || raw.data.length === 0) return false;
+            var z = raw.data[0];
+            if (!z || typeof z !== 'object') return false;
+            return Object.prototype.hasOwnProperty.call(z, 'server_hawbcode') || Object.prototype.hasOwnProperty.call(z, 'details');
+        }
+        function renderWmsTrackResponse(obj, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (!obj || Number(obj.success) !== 1 || !Array.isArray(obj.data) || !obj.data.length) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var block = obj.data[0];
+            var details = Array.isArray(block.details) ? block.details.slice() : [];
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var hawbLabel = currentLang === 'zh' ? '服务商单号：' : 'Shipment no.: ';
+            var destLabel = currentLang === 'zh' ? '目的国：' : 'Destination: ';
+            var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            if (block.server_hawbcode) html += '<p><strong>' + hawbLabel + '</strong>' + escapeHtmlTrack(block.server_hawbcode) + '</p>';
+            if (block.destination_country) html += '<p><strong>' + destLabel + '</strong>' + escapeHtmlTrack(block.destination_country) + '</p>';
+            if (block.track_status_name) {
+                html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine(block.track_status_name + (block.signatory_name ? (' · ' + block.signatory_name) : '')) + '</p>';
+            }
+            html += '<h4>' + t2.msg_track_trail + '</h4>';
+            if (details.length === 0) {
+                html += '<p>' + t2.msg_track_no_trail + '</p>';
+                resDiv.innerHTML = html;
+                return;
+            }
+            var di;
+            for (di = details.length - 1; di >= 0; di--) {
+                var d = details[di];
+                var ts = d.track_occur_date || '';
+                var line = (d.track_description || '') + (d.track_location ? (' · ' + d.track_location) : '');
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -1112,6 +1154,10 @@
                     renderKingtransResponse(ktRaw, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'sz56t') {
                     renderSz56tResponse(raw.sz56t, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'wms') {
+                    renderWmsTrackResponse(raw.wms, num, resDiv);
+                } else if (isWmsGetTrackPayload(raw)) {
+                    renderWmsTrackResponse(raw, num, resDiv);
                 } else if (isSz56tTrackArray(raw)) {
                     renderSz56tResponse(raw, num, resDiv);
                 } else {
