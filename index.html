@@ -983,6 +983,54 @@
             }
             resDiv.innerHTML = html;
         }
+        /** 华磊/sz56t：顶层可为 [{ ack, data }] 或对象 { data }（代理会规范成前者）；轨迹见 trackDetails / childrenTrackDetails */
+        function renderSz56tResponse(arr, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            var list = Array.isArray(arr) ? arr : [];
+            var head = list[0];
+            if (!head || String(head.ack).toLowerCase() !== 'true') {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var data = head.data;
+            if (!Array.isArray(data) || !data.length) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var row = data[0];
+            var details = Array.isArray(row.trackDetails) ? row.trackDetails.slice() : [];
+            if (details.length === 0 && Array.isArray(row.childrenTrackDetails)) {
+                details = row.childrenTrackDetails.slice();
+            }
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var refLabel = currentLang === 'zh' ? '参考号：' : 'Ref: ';
+            var tkLabel = currentLang === 'zh' ? '跟踪号：' : 'Tracking no.: ';
+            var prodLabel = currentLang === 'zh' ? '物流方式：' : 'Product: ';
+            var countryLabel = currentLang === 'zh' ? '目的国：' : 'Country: ';
+            var statusLabel = currentLang === 'zh' ? '最新轨迹：' : 'Latest: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            if (row.referenceNumber) html += '<p><strong>' + refLabel + '</strong>' + escapeHtmlTrack(row.referenceNumber) + '</p>';
+            if (row.trackingNumber) html += '<p><strong>' + tkLabel + '</strong>' + escapeHtmlTrack(row.trackingNumber) + '</p>';
+            if (row.productKindName) html += '<p><strong>' + prodLabel + '</strong>' + escapeHtmlTrack(row.productKindName) + '</p>';
+            if (row.consigneeCountry) html += '<p><strong>' + countryLabel + '</strong>' + escapeHtmlTrack(row.consigneeCountry) + '</p>';
+            html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine((row.trackContent || '') + (row.trackDate ? ' · ' + row.trackDate : '')) + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            if (details.length === 0) {
+                html += '<p>' + t2.msg_track_no_trail + '</p>';
+                resDiv.innerHTML = html;
+                return;
+            }
+            var di;
+            for (di = details.length - 1; di >= 0; di--) {
+                var d = details[di];
+                var ts = d.track_date || d.track_signdate || d.track_createdate || d.trackDate || '';
+                var line = (d.track_content || d.trackContent || '') + ((d.track_location || d.trackLocation) ? (' · ' + (d.track_location || d.trackLocation)) : '');
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
+        function isSz56tTrackArray(raw) {
+            return Array.isArray(raw) && raw.length > 0 && raw[0] != null && Object.prototype.hasOwnProperty.call(raw[0], 'ack');
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -1062,6 +1110,10 @@
                     var ktRaw = Object.assign({}, raw);
                     delete ktRaw.__autoProvider;
                     renderKingtransResponse(ktRaw, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'sz56t') {
+                    renderSz56tResponse(raw.sz56t, num, resDiv);
+                } else if (isSz56tTrackArray(raw)) {
+                    renderSz56tResponse(raw, num, resDiv);
                 } else {
                     renderSpeedafResponse(raw, num, resDiv);
                 }

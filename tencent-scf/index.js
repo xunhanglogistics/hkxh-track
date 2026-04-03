@@ -8,6 +8,7 @@
  * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（速达非）
  * YW56_AUTHORIZATION（燕文）
  * KINGTRANS_API_BASE、KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN（K5 searchTrack）
+ * SZ56T_API_BASE（华磊/sz56t URL1 根；POST …/selectTrack.htm?documentCode=）
  */
 const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
@@ -27,6 +28,8 @@ const KINGTRANS_API_BASE = (
 ).trim().replace(/\/$/, '');
 const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
+
+const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -105,6 +108,34 @@ function kingtransEnvReady() {
   return !!(KINGTRANS_API_BASE && KINGTRANS_CLIENT_ID && KINGTRANS_TOKEN);
 }
 
+function sz56tEnvReady() {
+  return !!SZ56T_API_BASE;
+}
+
+function normalizeSz56tResponse(raw) {
+  if (raw == null) return raw;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'object' && Array.isArray(raw.data)) {
+    return [{ ack: 'true', data: raw.data }];
+  }
+  return raw;
+}
+
+function isSz56tHasUsableResult(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  const h = arr[0];
+  if (!h || String(h.ack).toLowerCase() !== 'true') return false;
+  const d = h.data;
+  if (!Array.isArray(d) || d.length === 0) return false;
+  const row = d[0];
+  if (Array.isArray(row.trackDetails) && row.trackDetails.length > 0) return true;
+  if (Array.isArray(row.childrenTrackDetails) && row.childrenTrackDetails.length > 0) {
+    return true;
+  }
+  if (row.trackContent || row.trackDate) return true;
+  return false;
+}
+
 function isKingtransHasUsableResult(raw) {
   if (!raw) return false;
   const sc = String(raw.statusCode || '').toLowerCase();
@@ -160,6 +191,37 @@ async function callKingtransTrack(mailNoList) {
   return raw;
 }
 
+/** 华磊 selectTrack.htm：POST，documentCode 在 query；空 body */
+async function callSz56tTrack(mailNoList) {
+  if (!sz56tEnvReady()) {
+    throw new Error(
+      '华磊/sz56t 轨迹未配置：请在 SCF 环境变量中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
+    );
+  }
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const url = `${SZ56T_API_BASE}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Accept: '*/*' },
+  });
+  const text = await res.text();
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : [];
+  } catch (_) {
+    throw new Error(`sz56t non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(`sz56t HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  raw = normalizeSz56tResponse(raw);
+  if (!Array.isArray(raw)) {
+    throw new Error('sz56t: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）');
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
@@ -183,6 +245,17 @@ async function resolveAutoTrack(mailNoList) {
       }
     } catch (err) {
       console.error('[scf/track] auto fallback kingtrans:', err.message || err);
+    }
+  }
+
+  if (sz56tEnvReady()) {
+    try {
+      const sz = await callSz56tTrack(mailNoList);
+      if (isSz56tHasUsableResult(sz)) {
+        return { __autoProvider: 'sz56t', sz56t: sz };
+      }
+    } catch (err) {
+      console.error('[scf/track] auto fallback sz56t:', err.message || err);
     }
   }
 
@@ -297,8 +370,8 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans',
-      note: 'POST：provider auto 依次速达非/燕文/Kingtrans；kingtrans 仅 K5；见 api.kingtrans.net',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t',
+      note: 'POST：provider auto 依次速达非/燕文/Kingtrans/华磊(sz56t)；需 SZ56T_API_BASE 才走华磊',
     });
   }
 
@@ -333,6 +406,8 @@ exports.main_handler = async (event) => {
       data = await callYanwenTracking(mailNoList);
     } else if (provider === 'kingtrans' || provider === 'k5') {
       data = await callKingtransTrack(mailNoList);
+    } else if (provider === 'sz56t' || provider === 'hualei') {
+      data = await callSz56tTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

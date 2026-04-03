@@ -9,6 +9,7 @@
  *   YW56_AUTHORIZATION — 燕文轨迹 Authorization
  *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（接口仅支持 POST，地址栏 GET 会 405）
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
+ *   SZ56T_API_BASE — 华磊/sz56t 的 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -48,6 +49,9 @@ const KINGTRANS_API_BASE = (
 ).trim().replace(/\/$/, '');
 const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
+
+/** 华磊物流通 URL1（轨迹等），当前：http://hx.hailei2018.com:8082；仍以环境变量 SZ56T_API_BASE 为准 */
+const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -289,6 +293,42 @@ function httpPostJson(urlString, bodyObj) {
   });
 }
 
+/** 华磊 selectTrack.htm：文档要求 POST，参数在 query */
+function httpPostEmpty(urlString) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const isHttps = u.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const defaultPort = isHttps ? 443 : 80;
+    const port = u.port ? Number(u.port) : defaultPort;
+    const pathQuery = `${u.pathname}${u.search}`;
+    const hostHeader = u.port ? `${u.hostname}:${u.port}` : u.hostname;
+    const opts = {
+      hostname: u.hostname,
+      port,
+      path: pathQuery,
+      method: 'POST',
+      headers: {
+        Host: hostHeader,
+        'Content-Length': '0',
+        Accept: '*/*',
+      },
+    };
+    const req = lib.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 function isSpeedafEffectivelyEmpty(raw) {
   if (raw == null) return true;
   if (typeof raw.success === 'boolean' && !raw.success) return true;
@@ -312,6 +352,35 @@ function isYanwenHasUsableResult(yw) {
 
 function kingtransEnvReady() {
   return !!(KINGTRANS_API_BASE && KINGTRANS_CLIENT_ID && KINGTRANS_TOKEN);
+}
+
+function sz56tEnvReady() {
+  return !!SZ56T_API_BASE;
+}
+
+/** 接口可能返回顶层 [{ ack, data }]，也可能返回 { data: [...] }（无 ack） */
+function normalizeSz56tResponse(raw) {
+  if (raw == null) return raw;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'object' && Array.isArray(raw.data)) {
+    return [{ ack: 'true', data: raw.data }];
+  }
+  return raw;
+}
+
+function isSz56tHasUsableResult(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  const h = arr[0];
+  if (!h || String(h.ack).toLowerCase() !== 'true') return false;
+  const d = h.data;
+  if (!Array.isArray(d) || d.length === 0) return false;
+  const row = d[0];
+  if (Array.isArray(row.trackDetails) && row.trackDetails.length > 0) return true;
+  if (Array.isArray(row.childrenTrackDetails) && row.childrenTrackDetails.length > 0) {
+    return true;
+  }
+  if (row.trackContent || row.trackDate) return true;
+  return false;
 }
 
 function isKingtransHasUsableResult(raw) {
@@ -361,6 +430,32 @@ async function callKingtransTrack(mailNoList) {
   return raw;
 }
 
+async function callSz56tTrack(mailNoList) {
+  if (!sz56tEnvReady()) {
+    throw new Error(
+      '华磊/sz56t 轨迹未配置：请在环境中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
+    );
+  }
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const url = `${SZ56T_API_BASE}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
+  const { status, text } = await httpPostEmpty(url);
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : [];
+  } catch (_) {
+    throw new Error(`sz56t non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`sz56t HTTP ${status}: ${text.slice(0, 200)}`);
+  }
+  raw = normalizeSz56tResponse(raw);
+  if (!Array.isArray(raw)) {
+    throw new Error('sz56t: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）');
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
@@ -384,6 +479,17 @@ async function resolveAutoTrack(mailNoList) {
       }
     } catch (err) {
       console.error('[api/track] auto fallback kingtrans:', err.message || err);
+    }
+  }
+
+  if (sz56tEnvReady()) {
+    try {
+      const sz = await callSz56tTrack(mailNoList);
+      if (isSz56tHasUsableResult(sz)) {
+        return { __autoProvider: 'sz56t', sz56t: sz };
+      }
+    } catch (err) {
+      console.error('[api/track] auto fallback sz56t:', err.message || err);
     }
   }
 
@@ -475,7 +581,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans(K5) proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -491,6 +597,11 @@ module.exports = async (req, res) => {
           trackingNumber: ' TRY_ORDER_SPEEDAF_YANWEN_KINGTRANS',
         },
         bodyKingtrans: { provider: 'kingtrans', trackingNumber: 'YOUR_NO' },
+        bodySz56t: {
+          provider: 'sz56t',
+          trackingNumber: 'YOUR_NO',
+          env: 'SZ56T_API_BASE required',
+        },
       },
     });
     return;
@@ -527,6 +638,8 @@ module.exports = async (req, res) => {
       data = await callYanwenTracking(mailNoList);
     } else if (provider === 'kingtrans' || provider === 'k5') {
       data = await callKingtransTrack(mailNoList);
+    } else if (provider === 'sz56t' || provider === 'hualei') {
+      data = await callSz56tTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }
