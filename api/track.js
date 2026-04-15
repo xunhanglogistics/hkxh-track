@@ -14,6 +14,8 @@
  *   WMS_SERVICE_URL — WMS「获取订单跟踪记录」完整 POST 地址（…/PublicService.asmx/ServiceInterfaceUTF8）
  *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
  *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
+ *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）
+ *     OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -62,6 +64,19 @@ const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, 
 const WMS_SERVICE_URL = (process.env.WMS_SERVICE_URL || '').trim();
 const WMS_APP_TOKEN = (process.env.WMS_APP_TOKEN || '').trim();
 const WMS_APP_KEY = (process.env.WMS_APP_KEY || '').trim();
+
+/** 越航 OIS：默认生产 projectUrl，勿混用测试页 demo 地址 */
+const OIS_PROJECT_URL = (process.env.OIS_PROJECT_URL || 'https://ois.yha56.com/').trim();
+const OIS_APP_KEY = (process.env.OIS_APP_KEY || '').trim();
+const OIS_APP_SECRET = (process.env.OIS_APP_SECRET || '').trim();
+const OIS_COMPANY_NO = (process.env.OIS_COMPANY_NO || '').trim();
+const OIS_CUST_NO = (process.env.OIS_CUST_NO || '').trim();
+const OIS_QUERY_TYPE = (process.env.OIS_QUERY_TYPE || '99').trim();
+const OIS_HEADER_VERSION = (process.env.OIS_HEADER_VERSION || '1').trim();
+const OIS_IS_TRANSLATE_EN = process.env.OIS_IS_TRANSLATE_EN;
+
+let oisTokenCache = { token: '', at: 0 };
+const OIS_TOKEN_TTL_MS = 25 * 60 * 1000;
 
 function md5(str) {
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toLowerCase();
@@ -342,6 +357,46 @@ function httpPostFormUrlEncoded(urlString, bodyUtf8String) {
   });
 }
 
+/** 表单 POST，可带自定义 header（越航 OIS：token/sign/version） */
+function httpPostFormUrlEncodedWithHeaders(urlString, bodyUtf8String, extraHeaders) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const isHttps = u.protocol === 'https:';
+    const bodyBuf = Buffer.from(bodyUtf8String, 'utf8');
+    const lib = isHttps ? https : http;
+    const defaultPort = isHttps ? 443 : 80;
+    const port = u.port ? Number(u.port) : defaultPort;
+    const pathQuery = `${u.pathname}${u.search}`;
+    const hostHeader = u.port ? `${u.hostname}:${u.port}` : u.hostname;
+    const baseH = {
+      Host: hostHeader,
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Content-Length': String(bodyBuf.length),
+      Accept: 'application/json, text/plain, */*',
+    };
+    const opts = {
+      hostname: u.hostname,
+      port,
+      path: pathQuery,
+      method: 'POST',
+      headers: { ...baseH, ...(extraHeaders || {}) },
+    };
+    const req = lib.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
 /** 华磊 selectTrack.htm：文档要求 POST，参数在 query */
 function httpPostEmpty(urlString) {
   return new Promise((resolve, reject) => {
@@ -597,6 +652,154 @@ async function callWmsGetTrack(mailNoList) {
   return raw;
 }
 
+function oisProjectBase() {
+  return OIS_PROJECT_URL.replace(/\/+$/, '');
+}
+
+function oisMaskTokenBase64(b64) {
+  return String(b64).replace(/a/g, '-').replace(/c/g, '#').replace(/x/g, '^').replace(/M/g, '$');
+}
+
+function oisBuildMaskedTokenHeader(realToken) {
+  const payload = JSON.stringify({
+    timestamp: Date.now(),
+    nonce: 'slnkda',
+    token: realToken,
+  });
+  return oisMaskTokenBase64(Buffer.from(payload, 'utf8').toString('base64'));
+}
+
+function oisSortedSignString(paramMap) {
+  const keys = Object.keys(paramMap).filter((k) => paramMap[k] != null && paramMap[k] !== '');
+  keys.sort();
+  return keys.map((k) => `${k}=${paramMap[k]}`).join('&');
+}
+
+function oisComputeSign(paramMap, appSecret) {
+  const plain = oisSortedSignString(paramMap);
+  const b64 = Buffer.from(plain, 'utf8').toString('base64');
+  return crypto.createHash('md5').update(b64 + appSecret, 'utf8').digest('hex').toUpperCase();
+}
+
+function oisEnvReady() {
+  return !!(OIS_APP_KEY && OIS_APP_SECRET && OIS_COMPANY_NO && OIS_CUST_NO);
+}
+
+async function oisFetchAccessToken(forceRefresh) {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    oisTokenCache.token &&
+    now - oisTokenCache.at < OIS_TOKEN_TTL_MS
+  ) {
+    return oisTokenCache.token;
+  }
+  const base = oisProjectBase();
+  const q = querystring.stringify({
+    appKey: OIS_APP_KEY,
+    appSecret: OIS_APP_SECRET,
+  });
+  const url = `${base}/ois/order/getAuth?${q}`;
+  const { status, text } = await httpOrHttpsGetText(url, { Accept: 'application/json' });
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`OIS getAuth non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`OIS getAuth HTTP ${status}: ${text.slice(0, 200)}`);
+  }
+  if (Number(raw.result_code) !== 0 || !raw.body || String(raw.body.ack).toLowerCase() !== 'true') {
+    throw new Error(`OIS getAuth 失败: ${(raw && raw.message) || text.slice(0, 200)}`);
+  }
+  const tok = raw.body.token;
+  if (!tok) throw new Error('OIS getAuth 未返回 token');
+  oisTokenCache = { token: tok, at: now };
+  return tok;
+}
+
+function oisBody1ForTrace(no) {
+  const obj = {
+    companyNo: OIS_COMPANY_NO,
+    custNo: OIS_CUST_NO,
+    queryType: OIS_QUERY_TYPE,
+    noList: no,
+  };
+  if (OIS_IS_TRANSLATE_EN !== undefined && OIS_IS_TRANSLATE_EN !== '') {
+    const n = parseInt(OIS_IS_TRANSLATE_EN, 10);
+    if (!Number.isNaN(n)) obj.isTranslateEn = n;
+  }
+  const sc = process.env.OIS_SHOW_COMPANY;
+  if (sc && String(sc).trim()) obj.showCompany = String(sc).trim();
+  return JSON.stringify(obj);
+}
+
+function oisParseTraceJson(text, httpStatus) {
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`OIS queryTraceoutList non-JSON (HTTP ${httpStatus}): ${text.slice(0, 200)}`);
+  }
+  return raw;
+}
+
+function oisShouldRetryResultCode(rc) {
+  return rc === 1002 || rc === 1004 || rc === 1005;
+}
+
+function isOisTraceUsable(raw) {
+  if (!raw || Number(raw.result_code) !== 0) return false;
+  const body = raw.body;
+  if (!Array.isArray(body) || body.length === 0) return false;
+  return true;
+}
+
+async function callOisQueryTrace(mailNoList, attempt) {
+  if (!oisEnvReady()) {
+    throw new Error(
+      '越航 OIS 轨迹未配置：请设置 OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO（及可选 OIS_PROJECT_URL）'
+    );
+  }
+  const att = typeof attempt === 'number' ? attempt : 0;
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const realTok = await oisFetchAccessToken(att > 0);
+  const masked = oisBuildMaskedTokenHeader(realTok);
+  const ver = OIS_HEADER_VERSION;
+  const body1 = oisBody1ForTrace(code);
+  const sign = oisComputeSign(
+    {
+      body1,
+      token: masked,
+      version: ver,
+    },
+    OIS_APP_SECRET
+  );
+  const formBody = querystring.stringify({ body1 });
+  const url = `${oisProjectBase()}/tms/expose/queryTraceoutList`;
+  const { status, text } = await httpPostFormUrlEncodedWithHeaders(url, formBody, {
+    token: masked,
+    sign,
+    version: ver,
+  });
+  const raw = oisParseTraceJson(text, status);
+  const rc = Number(raw.result_code);
+  if (status >= 200 && status < 300 && oisShouldRetryResultCode(rc) && att < 1) {
+    return callOisQueryTrace(mailNoList, att + 1);
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`OIS queryTraceoutList HTTP ${status}: ${text.slice(0, 200)}`);
+  }
+  if (rc !== 0) {
+    throw new Error(
+      `OIS queryTraceoutList result_code=${rc}: ${(raw && raw.message) || text.slice(0, 200)}`
+    );
+  }
+  return raw;
+}
+
 async function resolveAutoTrack(mailNoList) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
@@ -642,6 +845,17 @@ async function resolveAutoTrack(mailNoList) {
       }
     } catch (err) {
       console.error('[api/track] auto fallback wms gettrack:', err.message || err);
+    }
+  }
+
+  if (oisEnvReady()) {
+    try {
+      const ois = await callOisQueryTrace(mailNoList);
+      if (isOisTraceUsable(ois)) {
+        return { __autoProvider: 'ois', ois };
+      }
+    } catch (err) {
+      console.error('[api/track] auto fallback ois:', err.message || err);
     }
   }
 
@@ -733,7 +947,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS gettrack proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -758,6 +972,11 @@ module.exports = async (req, res) => {
           provider: 'wms',
           trackingNumber: '服务商单号',
           env: 'WMS_SERVICE_URL + WMS_APP_TOKEN + WMS_APP_KEY',
+        },
+        bodyOis: {
+          provider: 'ois',
+          trackingNumber: '运单/参考号/转单号',
+          env: 'OIS_APP_KEY + OIS_APP_SECRET + OIS_COMPANY_NO + OIS_CUST_NO',
         },
       },
     });
@@ -799,6 +1018,8 @@ module.exports = async (req, res) => {
       data = await callSz56tTrack(mailNoList);
     } else if (provider === 'wms' || provider === 'gettrack') {
       data = await callWmsGetTrack(mailNoList);
+    } else if (provider === 'ois' || provider === 'yha' || provider === 'yuehang') {
+      data = await callOisQueryTrace(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

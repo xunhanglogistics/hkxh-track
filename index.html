@@ -1073,6 +1073,45 @@
             }
             resDiv.innerHTML = html;
         }
+        /** 越航 OIS queryTraceoutList：result_code=0，body[] 含 scanDatetime/remark 等 */
+        function isOisTracePayload(raw) {
+            if (!raw || raw.body == null) return false;
+            if (Number(raw.result_code) !== 0) return false;
+            if (!Array.isArray(raw.body) || raw.body.length === 0) return false;
+            var r = raw.body[0];
+            return r != null && typeof r === 'object' &&
+                (Object.prototype.hasOwnProperty.call(r, 'remark') || Object.prototype.hasOwnProperty.call(r, 'scanDatetime'));
+        }
+        function renderOisTrackResponse(obj, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (!obj || Number(obj.result_code) !== 0 || !Array.isArray(obj.body) || !obj.body.length) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var rows = obj.body.slice();
+            rows.sort(function (a, b) {
+                var ta = typeof a.scanDatetime === 'number' ? a.scanDatetime : 0;
+                var tb = typeof b.scanDatetime === 'number' ? b.scanDatetime : 0;
+                return ta - tb;
+            });
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            html += '<h4>' + t2.msg_track_trail + '</h4>';
+            var di;
+            for (di = rows.length - 1; di >= 0; di--) {
+                var d = rows[di];
+                var ts = d.scanTime || '';
+                if (!ts && typeof d.scanDatetime === 'number') {
+                    var dt = new Date(d.scanDatetime);
+                    if (!isNaN(dt.getTime())) ts = dt.toLocaleString();
+                }
+                var line = (d.remark || '');
+                if (d.scanStation) line += (line ? ' · ' : '') + d.scanStation;
+                if (d.scanName) line += (line ? ' · ' : '') + d.scanName;
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -1080,8 +1119,8 @@
         function sanitizeTrackDisplayText(s) {
             if (s == null || s === '') return '';
             var t = String(s);
-            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ').replace(/\bKingtrans\b/gi, ' ');
-            t = t.replace(/燕文/g, '').replace(/速达非/g, '');
+            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ').replace(/\bKingtrans\b/gi, ' ').replace(/\bYHA\b/gi, ' ');
+            t = t.replace(/燕文/g, '').replace(/速达非/g, '').replace(/越航/g, '');
             t = t.replace(/\s{2,}/g, ' ').replace(/\s+([\.|,|;|:|\-])/g, '$1').replace(/([\(])\s+/g, '$1').replace(/\s+([\)])/g, '$1');
             return t.replace(/^\s+|\s+$/g, '');
         }
@@ -1156,8 +1195,12 @@
                     renderSz56tResponse(raw.sz56t, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'wms') {
                     renderWmsTrackResponse(raw.wms, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'ois') {
+                    renderOisTrackResponse(raw.ois, num, resDiv);
                 } else if (isWmsGetTrackPayload(raw)) {
                     renderWmsTrackResponse(raw, num, resDiv);
+                } else if (isOisTracePayload(raw)) {
+                    renderOisTrackResponse(raw, num, resDiv);
                 } else if (isSz56tTrackArray(raw)) {
                     renderSz56tResponse(raw, num, resDiv);
                 } else {
