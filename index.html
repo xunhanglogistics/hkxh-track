@@ -1079,8 +1079,22 @@
             if (Number(raw.result_code) !== 0) return false;
             if (!Array.isArray(raw.body) || raw.body.length === 0) return false;
             var r = raw.body[0];
-            return r != null && typeof r === 'object' &&
-                (Object.prototype.hasOwnProperty.call(r, 'remark') || Object.prototype.hasOwnProperty.call(r, 'scanDatetime'));
+            if (!r || typeof r !== 'object') return false;
+            if (Array.isArray(r.podInfoDTOList) && r.podInfoDTOList.length > 0) return true;
+            return Object.prototype.hasOwnProperty.call(r, 'remark') || Object.prototype.hasOwnProperty.call(r, 'scanDatetime');
+        }
+        /** OIS body[] 每项多为 jobno + podInfoDTOList（轨迹在子列表），需展开后再渲染 */
+        function flattenOisBodyRows(bodyArr) {
+            var rows = [];
+            (bodyArr || []).forEach(function (job) {
+                if (!job || typeof job !== 'object') return;
+                if (Array.isArray(job.podInfoDTOList) && job.podInfoDTOList.length) {
+                    job.podInfoDTOList.forEach(function (d) { rows.push(d); });
+                } else {
+                    rows.push(job);
+                }
+            });
+            return rows;
         }
         function renderOisTrackResponse(obj, inputNumber, resDiv) {
             var t2 = I18N[currentLang] || I18N.zh;
@@ -1088,7 +1102,11 @@
                 resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
                 return;
             }
-            var rows = obj.body.slice();
+            var rows = flattenOisBodyRows(obj.body);
+            if (!rows.length) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
             rows.sort(function (a, b) {
                 var ta = typeof a.scanDatetime === 'number' ? a.scanDatetime : 0;
                 var tb = typeof b.scanDatetime === 'number' ? b.scanDatetime : 0;
