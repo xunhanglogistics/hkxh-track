@@ -1155,7 +1155,7 @@
                 var useRemoteProxy = TRACK_PROXY.indexOf('http') === 0;
                 if (useRemoteProxy) {
                     try {
-                        var pr = await fetchTrackProxyPost({ mailNoList: [num], provider: 'auto' });
+                        var pr = await fetchTrackProxyPost({ mailNoList: [num], provider: 'auto', lang: currentLang });
                         if (!pr.ok) {
                             resDiv.innerHTML = '<p><strong>HTTP ' + pr.status + '</strong> — ' + t.msg_track_proxy_http + '</p><pre style="margin-top:8px;padding:10px;background:#f5f5f5;font-size:12px;overflow:auto;max-height:220px;word-break:break-all">' + escapeHtmlTrack(pr.text) + '</pre><p style="margin-top:10px;font-size:13px;color:#666">' + t.msg_track_fail + '</p>';
                             return;

@@ -15,7 +15,15 @@
  *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
  *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
  *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）
- *     OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO
+ *     OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO
+ *     可选 OIS_IS_TRANSLATE_EN；POST 带 lang（zh/en）时优先按界面语言映射 isTranslateEn（中文 0 / 英文 1）
+ *     OIS_DEBUG=1 — 临时在 Vercel Logs 打印发往越航的 getAuth / queryTraceoutList 报文结构（含 token/sign，排查完请关闭）
+ *     可选 OIS_TOKEN_NONCE — 写入 token 头内 JSON 的 nonce（默认 slnkda；若货代/SDK 用 request 等需与此一致）
+ *     可选 OIS_TOKEN_INNER_ORDER=pdf|sorted — token 内 JSON 键顺序（默认 pdf 与文档 2.3.2 一致）
+ *     可选 OIS_TOKEN_TIMESTAMP_STRING=1 — token 内 JSON 的 timestamp 序列化为字符串（与部分 FastJSON 行为一致）
+ *     签名（Utils.java sign）：参与 MD5 的键为 body1、nonce、timestamp、token(明文 access token)、version（排序后拼接再 Base64+MD5）；与 HTTP 头里伪装后的 token 无关
+ *     可选 OIS_TRACE_OMIT_IS_TRANSLATE=1 — 轨迹 body1 不传 isTranslateEn（仍 1005 时可试）
+ *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -70,10 +78,27 @@ const OIS_PROJECT_URL = (process.env.OIS_PROJECT_URL || 'https://ois.yha56.com/'
 const OIS_APP_KEY = (process.env.OIS_APP_KEY || '').trim();
 const OIS_APP_SECRET = (process.env.OIS_APP_SECRET || '').trim();
 const OIS_COMPANY_NO = (process.env.OIS_COMPANY_NO || '').trim();
-const OIS_CUST_NO = (process.env.OIS_CUST_NO || '').trim();
 const OIS_QUERY_TYPE = (process.env.OIS_QUERY_TYPE || '99').trim();
-const OIS_HEADER_VERSION = (process.env.OIS_HEADER_VERSION || '1').trim();
+/** 默认 1.0，与越航 Java Utils 示例签名字符串中 version= 一致 */
+const OIS_HEADER_VERSION = (process.env.OIS_HEADER_VERSION || '1.0').trim();
+/** token 头内 JSON 的 nonce；PDF 示例为 slnkda，部分货代环境为 request */
+const OIS_TOKEN_NONCE = (process.env.OIS_TOKEN_NONCE || 'slnkda').trim();
+/** pdf=文档 2.3.2 顺序；sorted=nonce,timestamp,token 字典序（仍 1005 时可试 OIS_TOKEN_INNER_ORDER=sorted） */
+const OIS_TOKEN_INNER_ORDER = (process.env.OIS_TOKEN_INNER_ORDER || 'pdf').trim().toLowerCase();
+const OIS_TOKEN_TIMESTAMP_STRING = /^1|true|yes$/i.test(
+  String(process.env.OIS_TOKEN_TIMESTAMP_STRING || '').trim()
+);
+const OIS_TRACE_OMIT_IS_TRANSLATE = /^1|true|yes$/i.test(
+  String(process.env.OIS_TRACE_OMIT_IS_TRANSLATE || '').trim()
+);
+/** 与货代成功样例一致：body1 不含 companyNo，仅 isTranslateEn、noList、queryType */
+const OIS_TRACE_BODY1_MINIMAL = /^1|true|yes$/i.test(
+  String(process.env.OIS_TRACE_BODY1_MINIMAL || '').trim()
+);
 const OIS_IS_TRANSLATE_EN = process.env.OIS_IS_TRANSLATE_EN;
+
+/** 设为 1/true 时打印越航请求详情到服务端日志（含伪装 token 与 sign，勿长期开启） */
+const OIS_DEBUG = /^1|true|yes$/i.test(String(process.env.OIS_DEBUG || '').trim());
 
 let oisTokenCache = { token: '', at: 0 };
 const OIS_TOKEN_TTL_MS = 25 * 60 * 1000;
@@ -660,13 +685,18 @@ function oisMaskTokenBase64(b64) {
   return String(b64).replace(/a/g, '-').replace(/c/g, '#').replace(/x/g, '^').replace(/M/g, '$');
 }
 
+/** @returns {{ masked: string, nonce: string, tsVal: number|string }} */
 function oisBuildMaskedTokenHeader(realToken) {
-  const payload = JSON.stringify({
-    timestamp: Date.now(),
-    nonce: 'slnkda',
-    token: realToken,
-  });
-  return oisMaskTokenBase64(Buffer.from(payload, 'utf8').toString('base64'));
+  const ts = Date.now();
+  const tsVal = OIS_TOKEN_TIMESTAMP_STRING ? String(ts) : ts;
+  const n = OIS_TOKEN_NONCE;
+  const inner =
+    OIS_TOKEN_INNER_ORDER === 'sorted'
+      ? { nonce: n, timestamp: tsVal, token: realToken }
+      : { timestamp: tsVal, nonce: n, token: realToken };
+  const payload = JSON.stringify(inner);
+  const masked = oisMaskTokenBase64(Buffer.from(payload, 'utf8').toString('base64'));
+  return { masked, nonce: n, tsVal };
 }
 
 function oisSortedSignString(paramMap) {
@@ -681,8 +711,14 @@ function oisComputeSign(paramMap, appSecret) {
   return crypto.createHash('md5').update(b64 + appSecret, 'utf8').digest('hex').toUpperCase();
 }
 
+function oisRedactAuthUrl(url) {
+  return String(url).replace(/(appSecret=)([^&]*)/gi, '$1***');
+}
+
 function oisEnvReady() {
-  return !!(OIS_APP_KEY && OIS_APP_SECRET && OIS_COMPANY_NO && OIS_CUST_NO);
+  if (!OIS_APP_KEY || !OIS_APP_SECRET) return false;
+  if (OIS_TRACE_BODY1_MINIMAL) return true;
+  return !!OIS_COMPANY_NO;
 }
 
 async function oisFetchAccessToken(forceRefresh) {
@@ -719,19 +755,40 @@ async function oisFetchAccessToken(forceRefresh) {
   return tok;
 }
 
-function oisBody1ForTrace(no) {
+/** 官网语言 zh→0 中文描述，en→1 英文描述；未识别则返回 undefined（走环境变量 OIS_IS_TRANSLATE_EN） */
+function oisResolveTranslateEnFromUiLang(lang) {
+  if (lang == null || lang === '') return undefined;
+  const s = String(lang).toLowerCase();
+  if (s === 'zh' || s.startsWith('zh-')) return 0;
+  if (s === 'en' || s.startsWith('en-')) return 1;
+  return undefined;
+}
+
+/**
+ * full：companyNo + queryType + noList +（可选）isTranslateEn（PDF 含 companyNo 时）
+ * minimal：货代成功日志仅 {"isTranslateEn":0,"noList":"...","queryType":"1"}，无 companyNo
+ */
+function oisBody1ForTrace(no, isTranslateEnOverride) {
+  let en = isTranslateEnOverride;
+  if (en === undefined && OIS_IS_TRANSLATE_EN !== undefined && OIS_IS_TRANSLATE_EN !== '') {
+    const n = parseInt(OIS_IS_TRANSLATE_EN, 10);
+    if (!Number.isNaN(n)) en = n;
+  }
+  if (OIS_TRACE_BODY1_MINIMAL) {
+    const obj = {
+      isTranslateEn: en !== undefined && en !== null ? en : 0,
+      noList: no,
+      queryType: OIS_QUERY_TYPE,
+    };
+    if (OIS_TRACE_OMIT_IS_TRANSLATE) delete obj.isTranslateEn;
+    return JSON.stringify(obj);
+  }
   const obj = {
     companyNo: OIS_COMPANY_NO,
-    custNo: OIS_CUST_NO,
     queryType: OIS_QUERY_TYPE,
     noList: no,
   };
-  if (OIS_IS_TRANSLATE_EN !== undefined && OIS_IS_TRANSLATE_EN !== '') {
-    const n = parseInt(OIS_IS_TRANSLATE_EN, 10);
-    if (!Number.isNaN(n)) obj.isTranslateEn = n;
-  }
-  const sc = process.env.OIS_SHOW_COMPANY;
-  if (sc && String(sc).trim()) obj.showCompany = String(sc).trim();
+  if (!OIS_TRACE_OMIT_IS_TRANSLATE && en !== undefined && en !== null) obj.isTranslateEn = en;
   return JSON.stringify(obj);
 }
 
@@ -756,29 +813,65 @@ function isOisTraceUsable(raw) {
   return true;
 }
 
-async function callOisQueryTrace(mailNoList, attempt) {
+async function callOisQueryTrace(mailNoList, attempt, oisOpts) {
   if (!oisEnvReady()) {
     throw new Error(
-      '越航 OIS 轨迹未配置：请设置 OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO（及可选 OIS_PROJECT_URL）'
+      '越航 OIS 轨迹未配置：请设置 OIS_APP_KEY、OIS_APP_SECRET（full 模式还需 OIS_COMPANY_NO；minimal 模式设 OIS_TRACE_BODY1_MINIMAL=1）'
     );
   }
+  const opts = oisOpts && typeof oisOpts === 'object' ? oisOpts : {};
   const att = typeof attempt === 'number' ? attempt : 0;
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
   const realTok = await oisFetchAccessToken(att > 0);
-  const masked = oisBuildMaskedTokenHeader(realTok);
+  const { masked, nonce: oisNonce, tsVal } = oisBuildMaskedTokenHeader(realTok);
   const ver = OIS_HEADER_VERSION;
-  const body1 = oisBody1ForTrace(code);
+  const body1 = oisBody1ForTrace(code, opts.isTranslateEn);
+  /** 与 com.yha.sdk.util.Utils.sign 一致：body1&nonce&timestamp&token&version（token 为明文 access token，非伪装串） */
   const sign = oisComputeSign(
     {
       body1,
-      token: masked,
+      nonce: oisNonce,
+      timestamp: tsVal,
+      token: realTok,
       version: ver,
     },
     OIS_APP_SECRET
   );
   const formBody = querystring.stringify({ body1 });
   const url = `${oisProjectBase()}/tms/expose/queryTraceoutList`;
+  if (OIS_DEBUG) {
+    const sortedPlain = oisSortedSignString({
+      body1,
+      nonce: oisNonce,
+      timestamp: tsVal,
+      token: realTok,
+      version: ver,
+    });
+    const b64Payload = Buffer.from(sortedPlain, 'utf8').toString('base64');
+    console.log(
+      '[OIS_DEBUG] queryTraceoutList',
+      JSON.stringify(
+        {
+          method: 'POST',
+          url,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            token: masked,
+            sign,
+            version: ver,
+          },
+          body: formBody,
+          body1Decoded: body1,
+          signSortedString: sortedPlain,
+          signBase64Payload: b64Payload,
+          signMd5HexUpper: sign,
+        },
+        null,
+        2
+      )
+    );
+  }
   const { status, text } = await httpPostFormUrlEncodedWithHeaders(url, formBody, {
     token: masked,
     sign,
@@ -787,7 +880,7 @@ async function callOisQueryTrace(mailNoList, attempt) {
   const raw = oisParseTraceJson(text, status);
   const rc = Number(raw.result_code);
   if (status >= 200 && status < 300 && oisShouldRetryResultCode(rc) && att < 1) {
-    return callOisQueryTrace(mailNoList, att + 1);
+    return callOisQueryTrace(mailNoList, att + 1, opts);
   }
   if (status < 200 || status >= 300) {
     throw new Error(`OIS queryTraceoutList HTTP ${status}: ${text.slice(0, 200)}`);
@@ -800,7 +893,8 @@ async function callOisQueryTrace(mailNoList, attempt) {
   return raw;
 }
 
-async function resolveAutoTrack(mailNoList) {
+async function resolveAutoTrack(mailNoList, ctx) {
+  const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
 
@@ -850,7 +944,7 @@ async function resolveAutoTrack(mailNoList) {
 
   if (oisEnvReady()) {
     try {
-      const ois = await callOisQueryTrace(mailNoList);
+      const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
       if (isOisTraceUsable(ois)) {
         return { __autoProvider: 'ois', ois };
       }
@@ -956,7 +1050,7 @@ module.exports = async (req, res) => {
         method: 'POST',
         'Content-Type': 'application/json',
         bodyExample: { trackingNumber: 'YOUR_MAIL_NO' },
-        bodyExampleAlt: { mailNoList: ['YOUR_MAIL_NO'] },
+        bodyExampleAlt: { mailNoList: ['YOUR_MAIL_NO'], lang: 'zh' },
         bodyYanwen: { provider: 'yanwen', trackingNumber: 'YOUR_YW_NO' },
         bodyAuto: {
           provider: 'auto',
@@ -976,7 +1070,7 @@ module.exports = async (req, res) => {
         bodyOis: {
           provider: 'ois',
           trackingNumber: '运单/参考号/转单号',
-          env: 'OIS_APP_KEY + OIS_APP_SECRET + OIS_COMPANY_NO + OIS_CUST_NO',
+          env: 'OIS_APP_KEY + OIS_APP_SECRET；full 需 OIS_COMPANY_NO；minimal 设 OIS_TRACE_BODY1_MINIMAL=1',
         },
       },
     });
@@ -1006,10 +1100,11 @@ module.exports = async (req, res) => {
   const provider = String(body.provider || 'speedaf')
     .toLowerCase()
     .trim();
+  const trackCtx = { lang: body.lang };
   try {
     let data;
     if (provider === 'auto' || provider === 'merge') {
-      data = await resolveAutoTrack(mailNoList);
+      data = await resolveAutoTrack(mailNoList, trackCtx);
     } else if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
       data = await callYanwenTracking(mailNoList);
     } else if (provider === 'kingtrans' || provider === 'k5') {
@@ -1019,7 +1114,9 @@ module.exports = async (req, res) => {
     } else if (provider === 'wms' || provider === 'gettrack') {
       data = await callWmsGetTrack(mailNoList);
     } else if (provider === 'ois' || provider === 'yha' || provider === 'yuehang') {
-      data = await callOisQueryTrace(mailNoList);
+      data = await callOisQueryTrace(mailNoList, 0, {
+        isTranslateEn: oisResolveTranslateEnFromUiLang(body.lang),
+      });
     } else {
       data = await callSpeedaf(mailNoList);
     }

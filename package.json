@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "baidu-push": "node scripts/baidu-push-urls.js",
-    "sz56t-test": "node scripts/sz56t-direct-test.js"
+    "sz56t-test": "node scripts/sz56t-direct-test.js",
+    "ois-test": "node scripts/ois-direct-test.js"
   },
   "dependencies": {
     "crypto-js": "^4.2.0",

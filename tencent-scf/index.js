@@ -10,7 +10,7 @@
  * KINGTRANS_API_BASE、KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN（K5 searchTrack）
  * SZ56T_API_BASE（华磊/sz56t URL1 根；POST …/selectTrack.htm?documentCode=）
  * WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY（POST form gettrack，见货代 API 文档）
- * OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO（越航轨迹 queryTraceoutList）
+ * OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO（越航轨迹 queryTraceoutList）
  */
 const crypto = require('crypto');
 const querystring = require('querystring');
@@ -43,9 +43,19 @@ const OIS_PROJECT_URL = (process.env.OIS_PROJECT_URL || 'https://ois.yha56.com/'
 const OIS_APP_KEY = (process.env.OIS_APP_KEY || '').trim();
 const OIS_APP_SECRET = (process.env.OIS_APP_SECRET || '').trim();
 const OIS_COMPANY_NO = (process.env.OIS_COMPANY_NO || '').trim();
-const OIS_CUST_NO = (process.env.OIS_CUST_NO || '').trim();
 const OIS_QUERY_TYPE = (process.env.OIS_QUERY_TYPE || '99').trim();
-const OIS_HEADER_VERSION = (process.env.OIS_HEADER_VERSION || '1').trim();
+const OIS_HEADER_VERSION = (process.env.OIS_HEADER_VERSION || '1.0').trim();
+const OIS_TOKEN_NONCE = (process.env.OIS_TOKEN_NONCE || 'slnkda').trim();
+const OIS_TOKEN_INNER_ORDER = (process.env.OIS_TOKEN_INNER_ORDER || 'pdf').trim().toLowerCase();
+const OIS_TOKEN_TIMESTAMP_STRING = /^1|true|yes$/i.test(
+  String(process.env.OIS_TOKEN_TIMESTAMP_STRING || '').trim()
+);
+const OIS_TRACE_OMIT_IS_TRANSLATE = /^1|true|yes$/i.test(
+  String(process.env.OIS_TRACE_OMIT_IS_TRANSLATE || '').trim()
+);
+const OIS_TRACE_BODY1_MINIMAL = /^1|true|yes$/i.test(
+  String(process.env.OIS_TRACE_BODY1_MINIMAL || '').trim()
+);
 const OIS_IS_TRANSLATE_EN = process.env.OIS_IS_TRANSLATE_EN;
 
 let oisTokenCache = { token: '', at: 0 };
@@ -344,12 +354,16 @@ function oisMaskTokenBase64(b64) {
 }
 
 function oisBuildMaskedTokenHeader(realToken) {
-  const payload = JSON.stringify({
-    timestamp: Date.now(),
-    nonce: 'slnkda',
-    token: realToken,
-  });
-  return oisMaskTokenBase64(Buffer.from(payload, 'utf8').toString('base64'));
+  const ts = Date.now();
+  const tsVal = OIS_TOKEN_TIMESTAMP_STRING ? String(ts) : ts;
+  const n = OIS_TOKEN_NONCE;
+  const inner =
+    OIS_TOKEN_INNER_ORDER === 'sorted'
+      ? { nonce: n, timestamp: tsVal, token: realToken }
+      : { timestamp: tsVal, nonce: n, token: realToken };
+  const payload = JSON.stringify(inner);
+  const masked = oisMaskTokenBase64(Buffer.from(payload, 'utf8').toString('base64'));
+  return { masked, nonce: n, tsVal };
 }
 
 function oisSortedSignString(paramMap) {
@@ -365,7 +379,9 @@ function oisComputeSign(paramMap, appSecret) {
 }
 
 function oisEnvReady() {
-  return !!(OIS_APP_KEY && OIS_APP_SECRET && OIS_COMPANY_NO && OIS_CUST_NO);
+  if (!OIS_APP_KEY || !OIS_APP_SECRET) return false;
+  if (OIS_TRACE_BODY1_MINIMAL) return true;
+  return !!OIS_COMPANY_NO;
 }
 
 async function oisFetchAccessToken(forceRefresh) {
@@ -403,19 +419,35 @@ async function oisFetchAccessToken(forceRefresh) {
   return tok;
 }
 
-function oisBody1ForTrace(no) {
+function oisResolveTranslateEnFromUiLang(lang) {
+  if (lang == null || lang === '') return undefined;
+  const s = String(lang).toLowerCase();
+  if (s === 'zh' || s.startsWith('zh-')) return 0;
+  if (s === 'en' || s.startsWith('en-')) return 1;
+  return undefined;
+}
+
+function oisBody1ForTrace(no, isTranslateEnOverride) {
+  let en = isTranslateEnOverride;
+  if (en === undefined && OIS_IS_TRANSLATE_EN !== undefined && OIS_IS_TRANSLATE_EN !== '') {
+    const n = parseInt(OIS_IS_TRANSLATE_EN, 10);
+    if (!Number.isNaN(n)) en = n;
+  }
+  if (OIS_TRACE_BODY1_MINIMAL) {
+    const obj = {
+      isTranslateEn: en !== undefined && en !== null ? en : 0,
+      noList: no,
+      queryType: OIS_QUERY_TYPE,
+    };
+    if (OIS_TRACE_OMIT_IS_TRANSLATE) delete obj.isTranslateEn;
+    return JSON.stringify(obj);
+  }
   const obj = {
     companyNo: OIS_COMPANY_NO,
-    custNo: OIS_CUST_NO,
     queryType: OIS_QUERY_TYPE,
     noList: no,
   };
-  if (OIS_IS_TRANSLATE_EN !== undefined && OIS_IS_TRANSLATE_EN !== '') {
-    const n = parseInt(OIS_IS_TRANSLATE_EN, 10);
-    if (!Number.isNaN(n)) obj.isTranslateEn = n;
-  }
-  const sc = process.env.OIS_SHOW_COMPANY;
-  if (sc && String(sc).trim()) obj.showCompany = String(sc).trim();
+  if (!OIS_TRACE_OMIT_IS_TRANSLATE && en !== undefined && en !== null) obj.isTranslateEn = en;
   return JSON.stringify(obj);
 }
 
@@ -430,20 +462,24 @@ function isOisTraceUsable(raw) {
   return true;
 }
 
-async function callOisQueryTrace(mailNoList, attempt) {
+async function callOisQueryTrace(mailNoList, attempt, oisOpts) {
   if (!oisEnvReady()) {
     throw new Error(
-      '越航 OIS 轨迹未配置：请设置 OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO、OIS_CUST_NO'
+      '越航 OIS 轨迹未配置：请设置 OIS_APP_KEY、OIS_APP_SECRET（full 还需 OIS_COMPANY_NO；minimal 设 OIS_TRACE_BODY1_MINIMAL=1）'
     );
   }
+  const opts = oisOpts && typeof oisOpts === 'object' ? oisOpts : {};
   const att = typeof attempt === 'number' ? attempt : 0;
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
   const realTok = await oisFetchAccessToken(att > 0);
-  const masked = oisBuildMaskedTokenHeader(realTok);
+  const { masked, nonce: oisNonce, tsVal } = oisBuildMaskedTokenHeader(realTok);
   const ver = OIS_HEADER_VERSION;
-  const body1 = oisBody1ForTrace(code);
-  const sign = oisComputeSign({ body1, token: masked, version: ver }, OIS_APP_SECRET);
+  const body1 = oisBody1ForTrace(code, opts.isTranslateEn);
+  const sign = oisComputeSign(
+    { body1, nonce: oisNonce, timestamp: tsVal, token: realTok, version: ver },
+    OIS_APP_SECRET
+  );
   const formBody = querystring.stringify({ body1 });
   const url = `${oisProjectBase()}/tms/expose/queryTraceoutList`;
   const res = await fetch(url, {
@@ -465,7 +501,7 @@ async function callOisQueryTrace(mailNoList, attempt) {
   }
   const rc = Number(raw.result_code);
   if (res.ok && oisShouldRetryResultCode(rc) && att < 1) {
-    return callOisQueryTrace(mailNoList, att + 1);
+    return callOisQueryTrace(mailNoList, att + 1, opts);
   }
   if (!res.ok) {
     throw new Error(`OIS queryTraceoutList HTTP ${res.status}: ${text.slice(0, 200)}`);
@@ -478,7 +514,8 @@ async function callOisQueryTrace(mailNoList, attempt) {
   return raw;
 }
 
-async function resolveAutoTrack(mailNoList) {
+async function resolveAutoTrack(mailNoList, ctx) {
+  const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
 
@@ -528,7 +565,7 @@ async function resolveAutoTrack(mailNoList) {
 
   if (oisEnvReady()) {
     try {
-      const ois = await callOisQueryTrace(mailNoList);
+      const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
       if (isOisTraceUsable(ois)) {
         return { __autoProvider: 'ois', ois };
       }
@@ -675,11 +712,12 @@ exports.main_handler = async (event) => {
   const provider = String(body.provider || 'speedaf')
     .toLowerCase()
     .trim();
+  const trackCtx = { lang: body.lang };
 
   try {
     let data;
     if (provider === 'auto' || provider === 'merge') {
-      data = await resolveAutoTrack(mailNoList);
+      data = await resolveAutoTrack(mailNoList, trackCtx);
     } else if (provider === 'yanwen' || provider === 'yw56' || provider === 'yw') {
       data = await callYanwenTracking(mailNoList);
     } else if (provider === 'kingtrans' || provider === 'k5') {
@@ -689,7 +727,9 @@ exports.main_handler = async (event) => {
     } else if (provider === 'wms' || provider === 'gettrack') {
       data = await callWmsGetTrack(mailNoList);
     } else if (provider === 'ois' || provider === 'yha' || provider === 'yuehang') {
-      data = await callOisQueryTrace(mailNoList);
+      data = await callOisQueryTrace(mailNoList, 0, {
+        isTranslateEn: oisResolveTranslateEnFromUiLang(body.lang),
+      });
     } else {
       data = await callSpeedaf(mailNoList);
     }

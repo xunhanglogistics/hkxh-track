@@ -4,3 +4,4 @@ node_modules/
 # 本地填入真实 Token 后勿提交；模板见 kt-test.example.json
 kt-test.json
 sz56t-test.json
+ois-test.json
