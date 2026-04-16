@@ -14,7 +14,7 @@
  *   WMS_SERVICE_URL — WMS「获取订单跟踪记录」完整 POST 地址（…/PublicService.asmx/ServiceInterfaceUTF8）
  *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
  *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
- *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）
+ *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）；auto 模式下在速达非无结果后优先尝试 OIS，再试燕文等（减少境外节点对国内接口逐个超时）
  *     OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO
  *     可选 OIS_IS_TRANSLATE_EN；POST 带 lang（zh/en）时优先按界面语言映射 isTranslateEn（中文 0 / 英文 1）
  *     OIS_DEBUG=1 — 临时在 Vercel Logs 打印发往越航的 getAuth / queryTraceoutList 报文结构（含 token/sign，排查完请关闭）
@@ -898,6 +898,17 @@ async function resolveAutoTrack(mailNoList, ctx) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
 
+  if (oisEnvReady()) {
+    try {
+      const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
+      if (isOisTraceUsable(ois)) {
+        return { __autoProvider: 'ois', ois };
+      }
+    } catch (err) {
+      console.error('[api/track] auto fallback ois:', err.message || err);
+    }
+  }
+
   if (YW56_AUTHORIZATION) {
     try {
       const yw = await callYanwenTracking(mailNoList);
@@ -939,17 +950,6 @@ async function resolveAutoTrack(mailNoList, ctx) {
       }
     } catch (err) {
       console.error('[api/track] auto fallback wms gettrack:', err.message || err);
-    }
-  }
-
-  if (oisEnvReady()) {
-    try {
-      const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
-      if (isOisTraceUsable(ois)) {
-        return { __autoProvider: 'ois', ois };
-      }
-    } catch (err) {
-      console.error('[api/track] auto fallback ois:', err.message || err);
     }
   }
 
