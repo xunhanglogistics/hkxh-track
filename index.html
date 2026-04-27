@@ -120,6 +120,15 @@
             color: var(--primary);
         }
 
+        nav a.nav-login {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        nav a.nav-login:hover {
+            color: var(--primary-dark);
+        }
+
         .lang-switcher {
             display: flex;
             align-items: center;
@@ -170,6 +179,31 @@
             opacity: 0.95;
             max-width: 650px;
             margin: 0 auto 24px;
+        }
+
+        .hero-cta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        /* 横幅内双按钮：同材质（白底实色+主色字），避免一实一线权重不均 */
+        .hero-cta .btn-hero-twin {
+            background: #fff;
+            color: var(--primary);
+            font-weight: 600;
+            border: 2px solid #fff;
+            min-width: 148px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+        }
+
+        .hero-cta .btn-hero-twin:hover {
+            background: #f4f7ff;
+            color: var(--primary-dark);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
         }
 
         /* 服务 */
@@ -443,8 +477,10 @@
                     <ul>
                         <li><a href="#home" data-i18n="nav_home">首页</a></li>
                         <li><a href="#services" data-i18n="nav_services">服务介绍</a></li>
-                        <li><a href="#track" data-i18n="nav_track">物流查询</a></li>
+                        <li><a href="#track" data-i18n="nav_track">轨迹查询</a></li>
                         <li><a href="#contact" data-i18n="nav_contact">联系我们</a></li>
+                        <li><a class="nav-login" href="https://hkxh.ollogistic.com/login" target="_blank"
+                                rel="noopener noreferrer" data-i18n="nav_login">会员登录</a></li>
                     </ul>
                 </nav>
                 <div class="lang-switcher">
@@ -460,7 +496,11 @@
         <div class="container">
             <h1 data-i18n="hero_title">专业跨境物流 · 全球通达</h1>
             <p data-i18n="hero_desc">深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。</p>
-            <a href="#track" class="btn btn-primary" data-i18n="hero_btn">立即查询</a>
+            <div class="hero-cta">
+                <a href="#track" class="btn btn-hero-twin" data-i18n="hero_btn">轨迹查询</a>
+                <a href="https://hkxh.ollogistic.com/login" class="btn btn-hero-twin" target="_blank"
+                    rel="noopener noreferrer" data-i18n="nav_login">会员登录</a>
+            </div>
         </div>
     </section>
     <section class="section services" id="services">
@@ -493,7 +533,7 @@
     </section>
     <section class="section track-section" id="track">
         <div class="container">
-            <h2 class="section-title" data-i18n="track_title">物流单号查询</h2>
+            <h2 class="section-title" data-i18n="track_title">轨迹单号查询</h2>
             <p class="section-subtitle" data-i18n="track_subtitle">输入您的单号，一键查询最新物流状态</p>
             <div class="track-box">
                 <form class="track-form" onsubmit="trackPackage(event)">
@@ -557,8 +597,10 @@
                     <ul>
                         <li><a href="#home" data-i18n="nav_home">首页</a></li>
                         <li><a href="#services" data-i18n="nav_services">服务介绍</a></li>
-                        <li><a href="#track" data-i18n="nav_track">物流查询</a></li>
+                        <li><a href="#track" data-i18n="nav_track">轨迹查询</a></li>
                         <li><a href="#contact" data-i18n="nav_contact">联系我们</a></li>
+                        <li><a href="https://hkxh.ollogistic.com/login" target="_blank" rel="noopener noreferrer"
+                                data-i18n="nav_login">会员登录</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
@@ -583,11 +625,12 @@
                 logo: '海凯讯航国际物流',
                 nav_home: '首页',
                 nav_services: '服务介绍',
-                nav_track: '物流查询',
+                nav_track: '轨迹查询',
                 nav_contact: '联系我们',
+                nav_login: '会员登录',
                 hero_title: '专业跨境物流 · 全球通达',
                 hero_desc: '深圳市海凯讯航国际货运代理有限公司，为您提供安全、快捷、高效、稳定的一站式跨境物流解决方案，助力业务拓展全球。',
-                hero_btn: '立即查询',
+                hero_btn: '轨迹查询',
                 services_title: '核心服务',
                 services_subtitle: '覆盖全球的物流网络，满足您多样化跨境运输需求',
                 s1_title: '国际快递',
@@ -598,7 +641,7 @@
                 s3_desc: '直飞/转飞渠道，时效快，覆盖全球主要机场，适合紧急补货。',
                 s4_title: 'FBA头程',
                 s4_desc: '专业亚马逊FBA头程，含清关、派送、仓储一站式解决方案。',
-                track_title: '物流单号查询',
+                track_title: '轨迹单号查询',
                 track_subtitle: '输入您的单号，一键查询最新物流状态',
                 track_placeholder: '请输入您的物流单号',
                 track_btn: '立即查询',
@@ -652,11 +695,12 @@
                 logo: 'HKXH International Logistics',
                 nav_home: 'Home',
                 nav_services: 'Services',
-                nav_track: 'Track',
+                nav_track: 'Tracking',
                 nav_contact: 'Contact',
+                nav_login: 'Member login',
                 hero_title: 'Cross-Border Logistics · Worldwide',
                 hero_desc: 'Shenzhen HKXH International Freight Forwarding Co., Ltd. provides safe, fast, efficient and reliable one-stop cross-border logistics solutions for your global business.',
-                hero_btn: 'Track Now',
+                hero_btn: 'Track inquiry',
                 services_title: 'Core Services',
                 services_subtitle: 'Global logistics network for your diverse cross-border shipping needs',
                 s1_title: 'International Express',
@@ -667,7 +711,7 @@
                 s3_desc: 'Direct and transship routes, fast delivery, major airports worldwide, ideal for urgent restock.',
                 s4_title: 'FBA Forwarding',
                 s4_desc: 'Amazon FBA first-mile: customs, delivery and storage solutions.',
-                track_title: 'Track Your Shipment',
+                track_title: 'Tracking number inquiry',
                 track_subtitle: 'Enter your tracking number to see the latest status',
                 track_placeholder: 'Enter tracking number',
                 track_btn: 'Track',
