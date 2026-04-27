@@ -8,6 +8,8 @@
     <title>海凯讯航国际物流 | 专业跨境物流解决方案</title>
     <meta name="description" content="深圳市海凯讯航国际货运代理有限公司，专业跨境物流、国际快递、FBA头程、全球专线，安全快捷高效。">
     <meta name="keywords" content="海凯讯航,国际物流,跨境电商物流,FBA头程,国际快递">
+    <link rel="preconnect" href="https://images.unsplash.com" crossorigin>
+    <link rel="dns-prefetch" href="https://images.unsplash.com">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.js"></script>
     <style>
         * {
@@ -24,12 +26,136 @@
             --gray: #e5e7eb;
             --text: #333;
             --text-light: #666;
+            --section-alt: #f2f5fb;
+            /* 海陆空底图（Unsplash；可改 ./assets/ 本地文件）。空=机翼/航空；海=港口集装箱；陆=公路仓配 */
+            --bg-air: url("https://images.unsplash.com/photo-1436491865332-7a61a109cc05?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80");
+            --bg-sea: url("https://images.unsplash.com/photo-1605745341112-85968b19335b?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80");
+            --bg-land: url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80");
+        }
+
+        html {
+            min-height: 100%;
+            /* 底纹由 .site-bg 全屏负责；勿覆一层实色，否则易盖住 z-index:0 的底图层 */
+            background: #e2e7f0;
+        }
+
+        /**
+         * 全站底图：品牌色光晕 + 冷灰纵向渐变
+         * 照片层：Unsplash 免费可商用，建议日后替换为自有物流实景图以统一品牌
+         * 注意：曾用 z-index:-1 会整层被叠到 html 底色下方，file 或 http 下都像「没图」
+         */
+        .site-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .site-bg-base {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 85% 55% at 8% 5%, rgba(22, 93, 255, 0.1) 0%, transparent 58%),
+                radial-gradient(ellipse 65% 50% at 95% 20%, rgba(0, 64, 201, 0.08) 0%, transparent 52%),
+                radial-gradient(ellipse 70% 45% at 50% 100%, rgba(22, 93, 255, 0.05) 0%, transparent 55%),
+                repeating-linear-gradient(
+                    105deg,
+                    rgba(15, 23, 42, 0) 0px,
+                    rgba(15, 23, 42, 0) 12px,
+                    rgba(15, 23, 42, 0.018) 12px,
+                    rgba(15, 23, 42, 0.018) 13px
+                ),
+                linear-gradient(170deg, #ebeef6 0%, #e3eaf4 45%, #eef1f8 100%);
+        }
+
+        .site-bg-photos {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+        }
+
+        .bg-photo {
+            position: absolute;
+            overflow: hidden;
+        }
+
+        /* 用 <img> 比 CSS background 更稳：file 打开/部分环境对外链背景不渲染时仍能加载 */
+        .bg-photo img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.35;
+            filter: grayscale(0.1) contrast(0.95);
+            pointer-events: none;
+            -webkit-mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, #000 35%, transparent 100%);
+            mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, #000 35%, transparent 100%);
+        }
+
+        .bg-photo--sea {
+            width: min(55vw, 640px);
+            height: min(50vh, 480px);
+            left: -4%;
+            bottom: 0;
+        }
+
+        .bg-photo--air {
+            width: min(48vw, 520px);
+            height: min(45vh, 400px);
+            right: -3%;
+            top: 6%;
+        }
+
+        .bg-photo--land {
+            width: min(50vw, 580px);
+            height: min(40vh, 360px);
+            right: 2%;
+            bottom: 4%;
+        }
+
+        @media (max-width: 900px) {
+            .bg-photo img {
+                opacity: 0.28;
+            }
+
+            .bg-photo--land {
+                display: none;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .bg-photo--air {
+                width: 80vw;
+                height: 32vh;
+                top: 10%;
+                right: -15%;
+            }
+
+            .bg-photo--sea {
+                width: 90vw;
+                height: 40vh;
+                left: -20%;
+            }
         }
 
         body {
-            background: var(--light);
+            position: relative;
+            min-height: 100%;
+            background: transparent;
             color: var(--text);
-            line-height: 1.6;
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            isolation: isolate;
+        }
+
+        /* 正文叠在 .site-bg（z-index:0）之上，否则全站背景在部分浏览器里不可见 */
+        body > header,
+        body > section,
+        body > footer {
+            position: relative;
+            z-index: 1;
         }
 
         a {
@@ -64,45 +190,62 @@
         }
 
         .section {
-            padding: 60px 0;
+            padding: 64px 0;
         }
 
         .section-title {
-            font-size: 30px;
+            font-size: 28px;
             font-weight: 700;
-            color: var(--primary);
+            color: var(--text);
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
+            line-height: 1.3;
+            letter-spacing: -0.02em;
+        }
+
+        .section-title::after {
+            content: "";
+            display: block;
+            width: 40px;
+            height: 3px;
+            margin: 14px auto 0;
+            background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+            border-radius: 2px;
         }
 
         .section-subtitle {
             font-size: 16px;
             color: var(--text-light);
             text-align: center;
-            max-width: 700px;
+            max-width: 640px;
             margin: 0 auto 40px;
+            line-height: 1.6;
         }
 
         /* 导航 */
         header {
-            background: #fff;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
             position: sticky;
             top: 0;
             z-index: 999;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
         }
 
         .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 0;
+            padding: 16px 0;
+            position: relative;
         }
 
         .logo {
-            font-size: 22px;
+            font-size: 21px;
             font-weight: 700;
             color: var(--primary);
+            letter-spacing: -0.01em;
         }
 
         nav ul {
@@ -170,15 +313,19 @@
         }
 
         .hero h1 {
-            font-size: 38px;
+            font-size: clamp(26px, 4vw, 40px);
             margin-bottom: 16px;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
         }
 
         .hero p {
-            font-size: 17px;
-            opacity: 0.95;
-            max-width: 650px;
-            margin: 0 auto 24px;
+            font-size: 16px;
+            opacity: 0.94;
+            max-width: 600px;
+            margin: 0 auto 28px;
+            line-height: 1.7;
         }
 
         .hero-cta {
@@ -206,9 +353,13 @@
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
         }
 
-        /* 服务 */
+        /* 核心服务：空运/航空意象 */
         .services {
-            background: #fff;
+            background-color: #e8edf5;
+            background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.7) 100%),
+                var(--bg-air);
+            background-size: cover, cover;
+            background-position: center, center 45%;
         }
 
         .services-grid {
@@ -219,14 +370,18 @@
 
         .service-card {
             background: var(--light);
-            padding: 28px;
+            padding: 28px 24px;
             border-radius: 12px;
             text-align: center;
-            transition: transform 0.3s;
+            border: 1px solid var(--gray);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
         }
 
         .service-card:hover {
-            transform: translateY(-4px);
+            transform: translateY(-3px);
+            border-color: rgba(22, 93, 255, 0.2);
+            box-shadow: 0 12px 28px rgba(22, 93, 255, 0.1);
         }
 
         .service-card h3 {
@@ -240,12 +395,21 @@
             color: var(--text-light);
         }
 
-        /* 查询 */
+        /* 轨迹查询：陆运/仓配意象 */
+        .track-section {
+            background-color: #e4e9f3;
+            background-image: linear-gradient(180deg, rgba(240, 244, 252, 0.7) 0%, rgba(230, 236, 248, 0.75) 100%),
+                var(--bg-land);
+            background-size: cover, cover;
+            background-position: center, 50% 40%;
+        }
+
         .track-box {
             background: #fff;
             padding: 36px;
             border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 16px rgba(15, 23, 42, 0.06);
+            border: 1px solid rgba(0, 0, 0, 0.04);
             max-width: 760px;
             margin: 0 auto;
         }
@@ -292,9 +456,13 @@
             font-size: 15px;
         }
 
-        /* 联系 */
+        /* 联系我们：海运/港口集装箱意象 */
         .contact-section {
-            background: #fff;
+            background-color: #e8edf5;
+            background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.68) 100%),
+                var(--bg-sea);
+            background-size: cover, cover;
+            background-position: center, 50% 20%;
         }
 
         .contact-wrapper {
@@ -343,6 +511,7 @@
             background: var(--light);
             padding: 28px;
             border-radius: 12px;
+            border: 1px solid var(--gray);
         }
 
         .contact-info-block h3 {
@@ -398,6 +567,15 @@
             font-size: 14px;
         }
 
+        a:focus-visible,
+        button:focus-visible,
+        .track-input:focus-visible,
+        .form-input:focus-visible,
+        .form-textarea:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
         /* ====================== 三端适配 ====================== */
         @media (max-width: 992px) {
             .hero h1 {
@@ -425,6 +603,7 @@
                 background: #fff;
                 padding: 20px;
                 box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+                z-index: 1000;
             }
 
             nav.active ul {
@@ -469,6 +648,21 @@
 </head>
 
 <body>
+    <div class="site-bg" aria-hidden="true">
+        <div class="site-bg-base"></div>
+        <!-- 底图可改为 ./assets/ 下自有图，避免外链依赖 -->
+        <div class="site-bg-photos">
+            <div class="bg-photo bg-photo--sea" aria-hidden="true">
+                <img src="https://images.unsplash.com/photo-1605745341112-85968b19335b?ixlib=rb-4.0.3&amp;auto=format&amp;fit=crop&amp;w=1200&amp;q=80" alt="" width="1200" height="800" loading="eager" fetchpriority="low" />
+            </div>
+            <div class="bg-photo bg-photo--air" aria-hidden="true">
+                <img src="https://images.unsplash.com/photo-1436491865332-7a61a109cc05?ixlib=rb-4.0.3&amp;auto=format&amp;fit=crop&amp;w=1200&amp;q=80" alt="" width="1200" height="800" loading="eager" fetchpriority="low" />
+            </div>
+            <div class="bg-photo bg-photo--land" aria-hidden="true">
+                <img src="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?ixlib=rb-4.0.3&amp;auto=format&amp;fit=crop&amp;w=1200&amp;q=80" alt="" width="1200" height="800" loading="eager" fetchpriority="low" />
+            </div>
+        </div>
+    </div>
     <header>
         <div class="container">
             <div class="header-content">
