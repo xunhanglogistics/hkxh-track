@@ -1134,14 +1134,38 @@ function portal218StripHtmlInner(s) {
     .trim();
 }
 
-/** 解析 /trackItem 返回的 HTML 内表格行为 time / desc */
+/** trackItem 页面常见 layui 时间轴：<span class="trackdate|tracklocation|trackinfo"> */
+function portal218SpanTextByClass(block, cls) {
+  const re = new RegExp(
+    `<span[^>]*\\bclass\\s*=\\s*["'][^"']*\\b${cls}\\b[^"']*["'][^>]*>([\\s\\S]*?)</span>`,
+    'i'
+  );
+  const m = String(block || '').match(re);
+  return m ? portal218StripHtmlInner(m[1]) : '';
+}
+
+/** 解析 /trackItem：优先 layui 时间轴，其次 <table> 行 */
 function portal218ParseTrackItemHtml(html) {
   const tracks = [];
   const h = String(html || '');
   if (!h || h.length < 30) return tracks;
-  if (/请求错误/i.test(h) && !/<table/i.test(h)) return tracks;
-  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  if (/请求错误/i.test(h) && !/<table/i.test(h) && !/layui-timeline-item/i.test(h)) {
+    return tracks;
+  }
+  const itemRe = /<li[^>]*\blayui-timeline-item\b[^>]*>([\s\S]*?)<\/li>/gi;
   let m;
+  while ((m = itemRe.exec(h))) {
+    const inner = m[1];
+    const time = portal218SpanTextByClass(inner, 'trackdate');
+    const loc = portal218SpanTextByClass(inner, 'tracklocation');
+    const info = portal218SpanTextByClass(inner, 'trackinfo');
+    const desc = [loc, info].filter(Boolean).join(' · ');
+    if (time && desc && time.length < 120) tracks.push({ time, desc });
+    else if (time && info && time.length < 120) tracks.push({ time, desc: info });
+    else if (time && loc && time.length < 120) tracks.push({ time, desc: loc });
+  }
+  if (tracks.length) return tracks;
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   while ((m = trRe.exec(h))) {
     const inner = m[1];
     const tds = [];
@@ -1288,21 +1312,21 @@ async function resolveAutoTrack(mailNoList, ctx) {
     }
   }
 
-  if (WAWAY_IN_AUTO) {
-    try {
-      const ww = await callWawayTrack(mailNoList);
-      if (isWawayUsable(ww)) return ww;
-    } catch (err) {
-      console.error('[api/track] auto fallback waway:', err.message || err);
-    }
-  }
-
   if (PORTAL218_IN_AUTO) {
     try {
       const p218 = await callPortal218Track(mailNoList);
       if (isPortal218Usable(p218)) return p218;
     } catch (err) {
       console.error('[api/track] auto fallback portal218:', err.message || err);
+    }
+  }
+
+  if (WAWAY_IN_AUTO) {
+    try {
+      const ww = await callWawayTrack(mailNoList);
+      if (isWawayUsable(ww)) return ww;
+    } catch (err) {
+      console.error('[api/track] auto fallback waway:', err.message || err);
     }
   }
 
