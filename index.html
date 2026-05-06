@@ -876,7 +876,6 @@
                 msg_track_no_status: '暂无状态',
                 msg_track_trail: '物流轨迹：',
                 msg_track_no_trail: '暂无轨迹信息',
-                msg_track_view_pic: '查看图片',
                 msg_contact_fill: '请填写姓名、邮箱和留言',
                 msg_contact_submitting: '正在提交...',
                 msg_contact_ok: '提交成功！我们会尽快通过您留下的邮箱与您联系。',
@@ -946,7 +945,6 @@
                 msg_track_no_status: 'No status',
                 msg_track_trail: 'Tracking:',
                 msg_track_no_trail: 'No tracking details',
-                msg_track_view_pic: 'View image',
                 msg_contact_fill: 'Please fill in name, email and message',
                 msg_contact_submitting: 'Submitting...',
                 msg_contact_ok: 'Submitted! We will contact you via your email soon.',
@@ -1097,9 +1095,7 @@
             if (tracks.length > 0) {
                 tracks.forEach(function (tk) {
                     var desc = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
-                    var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + displayTrackLine(desc) + '</div>';
-                    if (tk.pictureUrl) block += ' <a href="' + tk.pictureUrl + '" target="_blank" rel="noopener">' + t2.msg_track_view_pic + '</a>';
-                    block += '</div>';
+                    var block = '<div class="track-item"><div class="track-time">' + (tk.time || '') + '</div><div class="track-desc">' + displayTrackLine(desc) + '</div></div>';
                     html += block;
                 });
             } else {
