@@ -925,7 +925,8 @@ async function callNextslsTrack(mailNoList) {
     __autoProvider: 'nextsls',
     nextsls: { orderNum: code, refNo: '', shipmentId: '', status: '', country: '', tracks: [] },
   };
-  if (Number(raw.status) !== 1) {
+  const st = raw.status;
+  if (Number(st) !== 1 && String(st) !== '1') {
     return emptyPayload;
   }
   const ship = raw.data && raw.data.shipment;
@@ -959,6 +960,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
 
+  if (NEXTSLS_IN_AUTO) {
+    try {
+      const nx = await callNextslsTrack(mailNoList);
+      if (isNextslsUsable(nx)) return nx;
+    } catch (err) {
+      console.error('[scf/track] auto fallback nextsls:', err.message || err);
+    }
+  }
+
   if (oisEnvReady()) {
     try {
       const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
@@ -985,15 +995,6 @@ async function resolveAutoTrack(mailNoList, ctx) {
       if (isWawayUsable(ww)) return ww;
     } catch (err) {
       console.error('[scf/track] auto fallback waway:', err.message || err);
-    }
-  }
-
-  if (NEXTSLS_IN_AUTO) {
-    try {
-      const nx = await callNextslsTrack(mailNoList);
-      if (isNextslsUsable(nx)) return nx;
-    } catch (err) {
-      console.error('[scf/track] auto fallback nextsls:', err.message || err);
     }
   }
 

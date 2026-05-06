@@ -26,7 +26,7 @@
  *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
  *   华唯 / Waway：官网 GET 轨迹接口 URL 与 Referer 已写死在代码中（/pro/V1/Home/Track/{no}），无需环境变量；auto 链是否尝试由常量 WAWAY_IN_AUTO 控制
  *   货代轨迹门户 218.244.139.186:9999：先 GET /track 取 JSESSIONID，再 POST /trackList、/trackItem，带 Origin/Referer/Cookie（与浏览器 F12 一致）
- *   NextSLS ehub：https://tracking.nextsls.com/trace?app=… — GET /rest/trace/tracking/lists?app=&number=（app id 写死，与 F12 一致）；auto 链由 NEXTSLS_IN_AUTO 控制
+ *   NextSLS ehub：https://tracking.nextsls.com/trace?app=… — GET lists（app id 写死）；auto 在速达非无结果后**优先**尝试；Vercel 上对 HTTPS 走 IPv4+SNI 以规避部分网络环境解析问题
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -291,6 +291,35 @@ function httpsPostToIp(urlString, plainBody, targetIp) {
     });
     req.on('error', reject);
     req.write(bodyBuf);
+    req.end();
+  });
+}
+
+function httpsGetToIp(urlString, targetIp, headers) {
+  const u = new URL(urlString);
+  const pathQuery = `${u.pathname}${u.search}`;
+  const port = u.port ? Number(u.port) : 443;
+  return new Promise((resolve, reject) => {
+    const merged = { ...(headers || {}), Host: u.hostname };
+    const opts = {
+      host: targetIp,
+      port,
+      path: pathQuery,
+      method: 'GET',
+      servername: u.hostname,
+      headers: merged,
+    };
+    const req = https.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
     req.end();
   });
 }
@@ -1320,16 +1349,30 @@ function isNextslsUsable(payload) {
 async function callNextslsTrack(mailNoList) {
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
-  const url = `${NEXTSLS_LISTS_BASE}?${querystring.stringify({
+  const q = querystring.stringify({
     app: NEXTSLS_APP_ID,
     number: code,
-  })}`;
-  const { status, text } = await httpOrHttpsGetText(url, {
+  });
+  const url = `${NEXTSLS_LISTS_BASE}?${q}`;
+  const u = new URL(url);
+  const hdr = {
     'User-Agent': NEXTSLS_BROWSER_UA,
     Accept: 'application/json, text/plain, */*',
     'Accept-Language': 'zh-CN,zh;q=0.9',
     Referer: nextslsReferer(code),
-  });
+  };
+  let status;
+  let text;
+  if (u.protocol === 'https:') {
+    const address = await resolveHostToIPv4(u.hostname);
+    const r = await httpsGetToIp(url, address, hdr);
+    status = r.status;
+    text = r.text;
+  } else {
+    const r = await httpOrHttpsGetText(url, hdr);
+    status = r.status;
+    text = r.text;
+  }
   if (status < 200 || status >= 300) {
     throw new Error(`NextSLS HTTP ${status}: ${(text || '').slice(0, 160)}`);
   }
@@ -1343,7 +1386,8 @@ async function callNextslsTrack(mailNoList) {
     __autoProvider: 'nextsls',
     nextsls: { orderNum: code, refNo: '', shipmentId: '', status: '', country: '', tracks: [] },
   };
-  if (Number(raw.status) !== 1) {
+  const st = raw.status;
+  if (Number(st) !== 1 && String(st) !== '1') {
     return emptyPayload;
   }
   const ship = raw.data && raw.data.shipment;
@@ -1377,6 +1421,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
   const speedafRaw = await callSpeedaf(mailNoList);
   if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
 
+  if (NEXTSLS_IN_AUTO) {
+    try {
+      const nx = await callNextslsTrack(mailNoList);
+      if (isNextslsUsable(nx)) return nx;
+    } catch (err) {
+      console.error('[api/track] auto fallback nextsls:', err.message || err);
+    }
+  }
+
   if (oisEnvReady()) {
     try {
       const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
@@ -1403,15 +1456,6 @@ async function resolveAutoTrack(mailNoList, ctx) {
       if (isWawayUsable(ww)) return ww;
     } catch (err) {
       console.error('[api/track] auto fallback waway:', err.message || err);
-    }
-  }
-
-  if (NEXTSLS_IN_AUTO) {
-    try {
-      const nx = await callNextslsTrack(mailNoList);
-      if (isNextslsUsable(nx)) return nx;
-    } catch (err) {
-      console.error('[api/track] auto fallback nextsls:', err.message || err);
     }
   }
 
