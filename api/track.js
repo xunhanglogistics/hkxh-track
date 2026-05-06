@@ -24,6 +24,18 @@
  *     签名（Utils.java sign）：参与 MD5 的键为 body1、nonce、timestamp、token(明文 access token)、version（排序后拼接再 Base64+MD5）；与 HTTP 头里伪装后的 token 无关
  *     可选 OIS_TRACE_OMIT_IS_TRANSLATE=1 — 轨迹 body1 不传 isTranslateEn（仍 1005 时可试）
  *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
+ *   华唯 / Waway（二选一或并存）
+ *     A) 合作方接口 Track.ashx：WAWAY_API_KEY（32 位），及 WAWAY_API_BASE、WAWAY_TRACK_PATH、WAWAY_EXPRESS_DOMAIN
+ *     B) 无正式 API 时在服务端模拟官网查询：配置 WAWAY_PUBLIC_URL 为「地址模板」，不要写死某个运单号。
+ *        模板中必须用占位符 {no}（单号原文）或 {noEnc}（URL 编码单号），用户在我们官网轨迹框输入的单号会在每次查询时被替换进去，再请求华唯站点/XHR。
+ *        获取模板：浏览器打开华唯货件追踪页 → F12→Network → 触发一次查询 → 复制该请求的 URL，把其中的单号改成 {no} 或 {noEnc}。
+ *        华唯官网货件追踪（抓包）：GET http://www.uhuawei.com/pro/V1/Home/Track/{单号}
+ *        模板示例：WAWAY_PUBLIC_URL=http://www.uhuawei.com/pro/V1/Home/Track/{no}（path 中单号用 {no}；可选 WAWAY_PUBLIC_REFERER=http://www.uhuawei.com/home/track）
+ *        WAWAY_PUBLIC_METHOD=POST 时配 WAWAY_PUBLIC_POST_BODY（如 trackNo={noEnc}，参数名以抓包为准）
+ *        可选 WAWAY_PUBLIC_REFERER、WAWAY_BROWSER_UA；已配 Key 时默认仍走接口，设 WAWAY_FORCE_PUBLIC=1 可强制走公开 URL
+ *     解析：优先整段 JSON；否则在 HTML 中截取含 "Datas" 的 JSON 对象（与 Track.ashx 返回结构一致最易成功）
+ *     注意：转抓官网须符合对方服务条款/robots，且页面改版会导致失败；长期应争取正式接口或书面授权
+ *     WAWAY_DISABLE_AUTO=1 — 不在 auto 链中尝试华唯
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -96,6 +108,29 @@ const OIS_TRACE_BODY1_MINIMAL = /^1|true|yes$/i.test(
   String(process.env.OIS_TRACE_BODY1_MINIMAL || '').trim()
 );
 const OIS_IS_TRANSLATE_EN = process.env.OIS_IS_TRANSLATE_EN;
+
+const WAWAY_API_BASE = (process.env.WAWAY_API_BASE || 'https://www.uhuawei.com')
+  .trim()
+  .replace(/\/$/, '');
+const WAWAY_TRACK_PATH = (process.env.WAWAY_TRACK_PATH || '/Api/Track.ashx').trim();
+const WAWAY_API_KEY = (process.env.WAWAY_API_KEY || '').trim();
+const WAWAY_EXPRESS_DOMAIN = (process.env.WAWAY_EXPRESS_DOMAIN || 'www.uhuawei.com')
+  .trim()
+  .replace(/^https?:\/\//i, '');
+const WAWAY_DISABLE_AUTO = /^1|true|yes$/i.test(
+  String(process.env.WAWAY_DISABLE_AUTO || '').trim()
+);
+/** 查询地址模板（勿写死单号）：须含 {no} 或 {noEnc}，由 F12 抓包后把真实单号改成占位符 */
+const WAWAY_PUBLIC_URL = (process.env.WAWAY_PUBLIC_URL || '').trim();
+const WAWAY_PUBLIC_METHOD = (process.env.WAWAY_PUBLIC_METHOD || 'GET').trim().toUpperCase();
+const WAWAY_PUBLIC_POST_BODY = (process.env.WAWAY_PUBLIC_POST_BODY || '').trim();
+const WAWAY_PUBLIC_REFERER = (process.env.WAWAY_PUBLIC_REFERER || '').trim();
+const WAWAY_FORCE_PUBLIC = /^1|true|yes$/i.test(
+  String(process.env.WAWAY_FORCE_PUBLIC || '').trim()
+);
+const WAWAY_BROWSER_UA =
+  (process.env.WAWAY_BROWSER_UA || '').trim() ||
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /** 设为 1/true 时打印越航请求详情到服务端日志（含伪装 token 与 sign，勿长期开启） */
 const OIS_DEBUG = /^1|true|yes$/i.test(String(process.env.OIS_DEBUG || '').trim());
@@ -893,6 +928,241 @@ async function callOisQueryTrace(mailNoList, attempt, oisOpts) {
   return raw;
 }
 
+function wawayPublicConfigured() {
+  return /\{no\}|\{noEnc\}/i.test(WAWAY_PUBLIC_URL);
+}
+
+function wawayEnvReady() {
+  return !!WAWAY_API_KEY || wawayPublicConfigured();
+}
+
+function expandWawayTemplate(s, code) {
+  return String(s || '')
+    .replace(/\{noEnc\}/gi, encodeURIComponent(code))
+    .replace(/\{no\}/gi, code);
+}
+
+/** 从整段或 HTML 嵌入片段中解析出 JSON */
+function wawayTryParseJsonFromResponse(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try {
+      return JSON.parse(t);
+    } catch (_) {
+      /* 继续尝试嵌入 */
+    }
+  }
+  const near = (key) => {
+    const pos = t.indexOf(key);
+    if (pos < 0) return null;
+    for (let start = pos; start >= 0; start -= 1) {
+      if (t[start] !== '{') continue;
+      let depth = 0;
+      for (let j = start; j < t.length; j += 1) {
+        const ch = t[j];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            try {
+              return JSON.parse(t.slice(start, j + 1));
+            } catch (_) {
+              break;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+  return near('"Datas"') || near('"datas"') || near('"Code"') || near('"createDate"');
+}
+
+/** 官网 GET /pro/V1/Home/Track/{no}：{ code, msg, data[{ createDate, description, location }] } */
+function wawayFromProHomeTrackJson(raw, fallbackOrderNum) {
+  const c = raw.code;
+  if (c != null && Number(c) !== 0) {
+    throw new Error(raw.msg || `华唯查询失败 code=${c}`);
+  }
+  const rows = Array.isArray(raw.data) ? raw.data : [];
+  const tracks = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || typeof row !== 'object') continue;
+    let time = '';
+    if (row.createDate != null) {
+      time = String(row.createDate).replace('T', ' ');
+      const dot = time.indexOf('.');
+      if (dot > 0) time = time.slice(0, dot);
+    }
+    const parts = [];
+    if (row.description != null) parts.push(String(row.description));
+    if (row.location != null && String(row.location) !== '') parts.push(String(row.location));
+    tracks.push({
+      time,
+      desc: parts.join(' · '),
+    });
+  }
+  return {
+    __autoProvider: 'waway',
+    waway: { orderNum: fallbackOrderNum, tracks },
+  };
+}
+
+function wawayPayloadFromParsedJson(raw, fallbackOrderNum) {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('华唯：无法解析为 JSON 对象');
+  }
+  const isProV1Shape =
+    Object.prototype.hasOwnProperty.call(raw, 'code') &&
+    !Object.prototype.hasOwnProperty.call(raw, 'Code') &&
+    Array.isArray(raw.data);
+  if (isProV1Shape) {
+    return wawayFromProHomeTrackJson(raw, fallbackOrderNum);
+  }
+  if (raw.Code != null && String(raw.Code) !== '200') {
+    throw new Error(raw.Message || `华唯查单失败 Code=${raw.Code}`);
+  }
+  const datas = raw.Datas;
+  const tracks = [];
+  let orderNum = fallbackOrderNum;
+  if (Array.isArray(datas) && datas.length > 0) {
+    const first = datas[0];
+    if (first && first.OrderNum != null) orderNum = String(first.OrderNum);
+    const inner = first && first.Datas;
+    if (Array.isArray(inner)) {
+      for (let i = 0; i < inner.length; i += 1) {
+        const row = inner[i];
+        if (!row || typeof row !== 'object') continue;
+        tracks.push({
+          time: row.Time != null ? String(row.Time) : '',
+          desc: row.Desc != null ? String(row.Desc) : '',
+        });
+      }
+    }
+  }
+  return {
+    __autoProvider: 'waway',
+    waway: { orderNum, tracks },
+  };
+}
+
+async function callWawayTrackApi(code) {
+  if (!WAWAY_API_KEY) {
+    throw new Error('华唯接口未配置 WAWAY_API_KEY');
+  }
+  const pathPart = WAWAY_TRACK_PATH.startsWith('/') ? WAWAY_TRACK_PATH : `/${WAWAY_TRACK_PATH}`;
+  const url = `${WAWAY_API_BASE}${pathPart}`;
+  const body = querystring.stringify({
+    Key: WAWAY_API_KEY,
+    Orders: code,
+    ExpressDomain: WAWAY_EXPRESS_DOMAIN,
+  });
+  const refBase = WAWAY_API_BASE.replace(/\/$/, '');
+  let originVal;
+  try {
+    originVal = new URL(WAWAY_API_BASE).origin;
+  } catch (_) {
+    originVal = `https://${WAWAY_EXPRESS_DOMAIN}`;
+  }
+  const { status, text } = await httpPostFormUrlEncodedWithHeaders(url, body, {
+    Referer: `${refBase}/`,
+    Origin: originVal,
+  });
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`华唯接口非 JSON (HTTP ${status}): ${(text || '').slice(0, 200)}`);
+  }
+  return wawayPayloadFromParsedJson(raw, code);
+}
+
+async function callWawayTrackPublicFetch(code) {
+  if (!wawayPublicConfigured()) {
+    throw new Error('华唯公开查询未配置：请在 WAWAY_PUBLIC_URL 中填写抓包得到的地址，并包含 {no} 或 {noEnc}');
+  }
+  const url = expandWawayTemplate(WAWAY_PUBLIC_URL, code);
+  let referer = WAWAY_PUBLIC_REFERER;
+  if (!referer) {
+    try {
+      const u = new URL(url);
+      if (/uhuawei\.com$/i.test(u.hostname) && /\/pro\/V1\/Home\/Track\//i.test(u.pathname)) {
+        referer = `${u.origin}/home/track`;
+      } else {
+        referer = `${u.origin}/`;
+      }
+    } catch (_) {
+      referer = `${WAWAY_API_BASE}/`;
+    }
+  }
+  const baseHeaders = {
+    'User-Agent': WAWAY_BROWSER_UA,
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    Referer: referer,
+  };
+  let status;
+  let text;
+  if (WAWAY_PUBLIC_METHOD === 'POST') {
+    const postBody = expandWawayTemplate(WAWAY_PUBLIC_POST_BODY || `Orders={noEnc}`, code);
+    let originVal;
+    try {
+      originVal = new URL(referer).origin;
+    } catch (_) {
+      originVal = new URL(WAWAY_API_BASE).origin;
+    }
+    const r = await httpPostFormUrlEncodedWithHeaders(url, postBody, {
+      ...baseHeaders,
+      Origin: originVal,
+    });
+    status = r.status;
+    text = r.text;
+  } else {
+    const r = await httpOrHttpsGetText(url, baseHeaders);
+    status = r.status;
+    text = r.text;
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(`华唯公开查询 HTTP ${status}: ${(text || '').slice(0, 180)}`);
+  }
+  const raw = wawayTryParseJsonFromResponse(text);
+  if (!raw) {
+    throw new Error(
+      '华唯：响应中未找到可解析的轨迹 JSON。请用浏览器开发者工具确认查询接口返回是否为 JSON（或与 Track.ashx 相同结构），并把该请求 URL 配入 WAWAY_PUBLIC_URL'
+    );
+  }
+  return wawayPayloadFromParsedJson(raw, code);
+}
+
+function isWawayUsable(payload) {
+  return (
+    payload &&
+    payload.waway &&
+    Array.isArray(payload.waway.tracks) &&
+    payload.waway.tracks.length > 0
+  );
+}
+
+/**
+ * 华唯：优先 WAWAY_PUBLIC_URL（模拟官网/XHR），否则 Track.ashx + Key
+ */
+async function callWawayTrack(mailNoList) {
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  if (!wawayEnvReady()) {
+    throw new Error(
+      '华唯未配置：请设置 WAWAY_PUBLIC_URL（含 {no}，从官网查询抓包）或 WAWAY_API_KEY（合作方接口）'
+    );
+  }
+  const usePublic = wawayPublicConfigured() && (!WAWAY_API_KEY || WAWAY_FORCE_PUBLIC);
+  if (usePublic) {
+    return callWawayTrackPublicFetch(code);
+  }
+  return callWawayTrackApi(code);
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
@@ -906,6 +1176,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
       }
     } catch (err) {
       console.error('[api/track] auto fallback ois:', err.message || err);
+    }
+  }
+
+  if (!WAWAY_DISABLE_AUTO && wawayEnvReady()) {
+    try {
+      const ww = await callWawayTrack(mailNoList);
+      if (isWawayUsable(ww)) return ww;
+    } catch (err) {
+      console.error('[api/track] auto fallback waway:', err.message || err);
     }
   }
 
@@ -1041,7 +1320,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -1071,6 +1350,12 @@ module.exports = async (req, res) => {
           provider: 'ois',
           trackingNumber: '运单/参考号/转单号',
           env: 'OIS_APP_KEY + OIS_APP_SECRET；full 需 OIS_COMPANY_NO；minimal 设 OIS_TRACE_BODY1_MINIMAL=1',
+        },
+        bodyWaway: {
+          provider: 'waway',
+          trackingNumber: '运单号（由用户在官网输入；非环境变量里写死）',
+          env:
+            '华唯官网：WAWAY_PUBLIC_URL=http://www.uhuawei.com/pro/V1/Home/Track/{no}；或模板含 {no}/{noEnc}；合作方接口：WAWAY_API_KEY。可选 WAWAY_PUBLIC_REFERER、WAWAY_PUBLIC_METHOD/POST_BODY、WAWAY_DISABLE_AUTO、WAWAY_FORCE_PUBLIC',
         },
       },
     });
@@ -1117,6 +1402,8 @@ module.exports = async (req, res) => {
       data = await callOisQueryTrace(mailNoList, 0, {
         isTranslateEn: oisResolveTranslateEnFromUiLang(body.lang),
       });
+    } else if (provider === 'waway' || provider === 'uhuawei' || provider === 'waw') {
+      data = await callWawayTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

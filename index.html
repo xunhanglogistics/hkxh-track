@@ -1368,6 +1368,26 @@
             }
             resDiv.innerHTML = html;
         }
+        /** 华唯 Track.ashx：waway.tracks[] 含 time、desc */
+        function renderWawayTrackResponse(obj, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (!obj || !Array.isArray(obj.tracks) || obj.tracks.length === 0) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            html += '<h4>' + t2.msg_track_trail + '</h4>';
+            var arr = obj.tracks;
+            var di;
+            for (di = arr.length - 1; di >= 0; di--) {
+                var row = arr[di];
+                var ts = row.time || '';
+                var line = row.desc || '';
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -1375,8 +1395,8 @@
         function sanitizeTrackDisplayText(s) {
             if (s == null || s === '') return '';
             var t = String(s);
-            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ').replace(/\bKingtrans\b/gi, ' ').replace(/\bYHA\b/gi, ' ');
-            t = t.replace(/燕文/g, '').replace(/速达非/g, '').replace(/越航/g, '');
+            t = t.replace(/\bYanwen\b/gi, ' ').replace(/\bSpeedaf\b/gi, ' ').replace(/\bKingtrans\b/gi, ' ').replace(/\bYHA\b/gi, ' ').replace(/\bWaway\b/gi, ' ').replace(/\bWAWAY\b/gi, ' ');
+            t = t.replace(/燕文/g, '').replace(/速达非/g, '').replace(/越航/g, '').replace(/华唯/g, '');
             t = t.replace(/\s{2,}/g, ' ').replace(/\s+([\.|,|;|:|\-])/g, '$1').replace(/([\(])\s+/g, '$1').replace(/\s+([\)])/g, '$1');
             return t.replace(/^\s+|\s+$/g, '');
         }
@@ -1453,6 +1473,8 @@
                     renderWmsTrackResponse(raw.wms, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'ois') {
                     renderOisTrackResponse(raw.ois, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'waway') {
+                    renderWawayTrackResponse(raw.waway, num, resDiv);
                 } else if (isWmsGetTrackPayload(raw)) {
                     renderWmsTrackResponse(raw, num, resDiv);
                 } else if (isOisTracePayload(raw)) {
