@@ -26,6 +26,7 @@
  *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
  *   华唯 / Waway：官网 GET 轨迹接口 URL 与 Referer 已写死在代码中（/pro/V1/Home/Track/{no}），无需环境变量；auto 链是否尝试由常量 WAWAY_IN_AUTO 控制
  *   货代轨迹门户 218.244.139.186:9999：先 GET /track 取 JSESSIONID，再 POST /trackList、/trackItem，带 Origin/Referer/Cookie（与浏览器 F12 一致）
+ *   NextSLS ehub：https://tracking.nextsls.com/trace?app=… — GET /rest/trace/tracking/lists?app=&number=（app id 写死，与 F12 一致）；auto 链由 NEXTSLS_IN_AUTO 控制
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -116,6 +117,12 @@ const PORTAL218_SEARCH_FIELD =
 const PORTAL218_BROWSER_UA = WAWAY_BROWSER_UA;
 /** 设为 false 可关闭 auto 链中对该门户的查询 */
 const PORTAL218_IN_AUTO = true;
+
+/** NextSLS / ehub 查件（无正式 API 文档，按浏览器 F12）：GET lists，需 Referer */
+const NEXTSLS_LISTS_BASE = 'https://tracking.nextsls.com/rest/trace/tracking/lists';
+const NEXTSLS_APP_ID = '66f64b7473f04260eb51f9f6';
+const NEXTSLS_BROWSER_UA = WAWAY_BROWSER_UA;
+const NEXTSLS_IN_AUTO = true;
 
 /** 设为 1/true 时打印越航请求详情到服务端日志（含伪装 token 与 sign，勿长期开启） */
 const OIS_DEBUG = /^1|true|yes$/i.test(String(process.env.OIS_DEBUG || '').trim());
@@ -1296,6 +1303,75 @@ async function callPortal218Track(mailNoList) {
   return { __autoProvider: 'portal218', portal218: { orderNum: code, tracks } };
 }
 
+function nextslsReferer(num) {
+  const q = encodeURIComponent(String(num || '').trim());
+  return `https://tracking.nextsls.com/trace?app=${NEXTSLS_APP_ID}&numbers=${q}`;
+}
+
+function isNextslsUsable(payload) {
+  return (
+    payload &&
+    payload.nextsls &&
+    Array.isArray(payload.nextsls.tracks) &&
+    payload.nextsls.tracks.length > 0
+  );
+}
+
+async function callNextslsTrack(mailNoList) {
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  const url = `${NEXTSLS_LISTS_BASE}?${querystring.stringify({
+    app: NEXTSLS_APP_ID,
+    number: code,
+  })}`;
+  const { status, text } = await httpOrHttpsGetText(url, {
+    'User-Agent': NEXTSLS_BROWSER_UA,
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Referer: nextslsReferer(code),
+  });
+  if (status < 200 || status >= 300) {
+    throw new Error(`NextSLS HTTP ${status}: ${(text || '').slice(0, 160)}`);
+  }
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`NextSLS 非 JSON: ${(text || '').slice(0, 200)}`);
+  }
+  const emptyPayload = {
+    __autoProvider: 'nextsls',
+    nextsls: { orderNum: code, refNo: '', shipmentId: '', status: '', country: '', tracks: [] },
+  };
+  if (Number(raw.status) !== 1) {
+    return emptyPayload;
+  }
+  const ship = raw.data && raw.data.shipment;
+  if (!ship || typeof ship !== 'object') {
+    return emptyPayload;
+  }
+  const traceArr = Array.isArray(ship.traces) ? ship.traces : [];
+  const tracks = [];
+  for (let i = 0; i < traceArr.length; i += 1) {
+    const row = traceArr[i];
+    if (!row || typeof row !== 'object') continue;
+    const time = row.time != null ? String(row.time) : '';
+    const desc = row.info != null ? String(row.info) : '';
+    if (time || desc) tracks.push({ time, desc });
+  }
+  return {
+    __autoProvider: 'nextsls',
+    nextsls: {
+      orderNum: code,
+      refNo: ship.client_reference != null ? String(ship.client_reference) : '',
+      shipmentId: ship.shipment_id != null ? String(ship.shipment_id) : '',
+      status: ship.status != null ? String(ship.status) : '',
+      country: ship.country != null ? String(ship.country) : '',
+      tracks,
+    },
+  };
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
@@ -1327,6 +1403,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
       if (isWawayUsable(ww)) return ww;
     } catch (err) {
       console.error('[api/track] auto fallback waway:', err.message || err);
+    }
+  }
+
+  if (NEXTSLS_IN_AUTO) {
+    try {
+      const nx = await callNextslsTrack(mailNoList);
+      if (isNextslsUsable(nx)) return nx;
+    } catch (err) {
+      console.error('[api/track] auto fallback nextsls:', err.message || err);
     }
   }
 
@@ -1462,7 +1547,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 + NextSLS proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -1502,6 +1587,11 @@ module.exports = async (req, res) => {
           provider: 'portal218',
           trackingNumber: '单号',
           note: '218.244.139.186:9999 轨迹门户，请求写在 api/track.js',
+        },
+        bodyNextsls: {
+          provider: 'nextsls',
+          trackingNumber: '客户参考号/单号',
+          note: 'tracking.nextsls.com ehub，app 写死在 api/track.js',
         },
       },
     });
@@ -1552,6 +1642,8 @@ module.exports = async (req, res) => {
       data = await callWawayTrack(mailNoList);
     } else if (provider === 'portal218' || provider === 'tms218' || provider === '218track') {
       data = await callPortal218Track(mailNoList);
+    } else if (provider === 'nextsls' || provider === 'nextsls_track' || provider === 'ehub') {
+      data = await callNextslsTrack(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

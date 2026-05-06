@@ -1394,6 +1394,40 @@
         function renderPortal218TrackResponse(obj, inputNumber, resDiv) {
             renderTimeDescTracks(obj, inputNumber, resDiv);
         }
+        /** NextSLS ehub：JSON traces → time / desc */
+        function renderNextslsTrackResponse(obj, inputNumber, resDiv) {
+            var t2 = I18N[currentLang] || I18N.zh;
+            if (!obj || !Array.isArray(obj.tracks) || obj.tracks.length === 0) {
+                resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
+                return;
+            }
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
+            var refTrim = obj.refNo != null ? String(obj.refNo).trim() : '';
+            var inputTrim = String(inputNumber || '').trim();
+            if (refTrim && refTrim !== inputTrim) {
+                html += '<p><strong>' + (currentLang === 'zh' ? '客户参考号：' : 'Ref: ') + '</strong>' + escapeHtmlTrack(refTrim) + '</p>';
+            }
+            if (obj.shipmentId) {
+                html += '<p><strong>' + (currentLang === 'zh' ? '承运单号：' : 'Shipment ID: ') + '</strong>' + escapeHtmlTrack(obj.shipmentId) + '</p>';
+            }
+            var sumParts = [];
+            if (obj.status) sumParts.push(obj.status);
+            if (obj.country) sumParts.push(obj.country);
+            if (sumParts.length) {
+                html += '<p><strong>' + (currentLang === 'zh' ? '概要：' : 'Summary: ') + '</strong>' + displayTrackLine(sumParts.join(' · ')) + '</p>';
+            }
+            html += '<h4>' + t2.msg_track_trail + '</h4>';
+            var arr = obj.tracks;
+            var di;
+            for (di = arr.length - 1; di >= 0; di--) {
+                var row = arr[di];
+                var ts = row.time || '';
+                var line = row.desc || '';
+                html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
+            }
+            resDiv.innerHTML = html;
+        }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
         var TRACK_PROXY = 'https://api.hkxhlogistics.com/api/track';
@@ -1483,6 +1517,8 @@
                     renderWawayTrackResponse(raw.waway, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'portal218') {
                     renderPortal218TrackResponse(raw.portal218, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'nextsls') {
+                    renderNextslsTrackResponse(raw.nextsls, num, resDiv);
                 } else if (isWmsGetTrackPayload(raw)) {
                     renderWmsTrackResponse(raw, num, resDiv);
                 } else if (isOisTracePayload(raw)) {
