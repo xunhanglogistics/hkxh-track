@@ -1368,8 +1368,8 @@
             }
             resDiv.innerHTML = html;
         }
-        /** 华唯 Track.ashx：waway.tracks[] 含 time、desc */
-        function renderWawayTrackResponse(obj, inputNumber, resDiv) {
+        /** time + desc 通用时间轴（华唯 / 218 门户等） */
+        function renderTimeDescTracks(obj, inputNumber, resDiv) {
             var t2 = I18N[currentLang] || I18N.zh;
             if (!obj || !Array.isArray(obj.tracks) || obj.tracks.length === 0) {
                 resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
@@ -1387,6 +1387,12 @@
                 html += '<div class="track-item"><div class="track-time">' + escapeHtmlTrack(ts) + '</div><div class="track-desc">' + displayTrackLine(line) + '</div></div>';
             }
             resDiv.innerHTML = html;
+        }
+        function renderWawayTrackResponse(obj, inputNumber, resDiv) {
+            renderTimeDescTracks(obj, inputNumber, resDiv);
+        }
+        function renderPortal218TrackResponse(obj, inputNumber, resDiv) {
+            renderTimeDescTracks(obj, inputNumber, resDiv);
         }
         // 物流代理：优先用自有子域（国内访问常比 *.vercel.app 稳定）；若未配置子域可改回 Vercel 默认域名
         // Vercel 代理（路径 /api/track）；无自定义域时可改为 https://你的项目.vercel.app/api/track
@@ -1475,6 +1481,8 @@
                     renderOisTrackResponse(raw.ois, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'waway') {
                     renderWawayTrackResponse(raw.waway, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'portal218') {
+                    renderPortal218TrackResponse(raw.portal218, num, resDiv);
                 } else if (isWmsGetTrackPayload(raw)) {
                     renderWmsTrackResponse(raw, num, resDiv);
                 } else if (isOisTracePayload(raw)) {

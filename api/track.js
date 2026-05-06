@@ -25,6 +25,7 @@
  *     可选 OIS_TRACE_OMIT_IS_TRANSLATE=1 — 轨迹 body1 不传 isTranslateEn（仍 1005 时可试）
  *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
  *   华唯 / Waway：官网 GET 轨迹接口 URL 与 Referer 已写死在代码中（/pro/V1/Home/Track/{no}），无需环境变量；auto 链是否尝试由常量 WAWAY_IN_AUTO 控制
+ *   货代轨迹门户 218.244.139.186:9999：先 GET /track 取 JSESSIONID，再 POST /trackList、/trackItem，带 Origin/Referer/Cookie（与浏览器 F12 一致）
  */
 const crypto = require('crypto');
 const dns = require('dns');
@@ -105,6 +106,16 @@ const WAWAY_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 /** 设为 false 可关闭 auto 链中的华唯回退（仅此一处开关，不读环境变量） */
 const WAWAY_IN_AUTO = true;
+
+/** http://218.244.139.186:9999/track — POST /trackList、/trackItem（与浏览器页面一致） */
+const PORTAL218_BASE = 'http://218.244.139.186:9999';
+const PORTAL218_REFERER = 'http://218.244.139.186:9999/track';
+const PORTAL218_ORIGIN = 'http://218.244.139.186:9999';
+const PORTAL218_SEARCH_FIELD =
+  'border.systemnumber,border.customernumber1,border.waybillnumber,border.tracknumber,border.newtracknumber,border.fbanumber';
+const PORTAL218_BROWSER_UA = WAWAY_BROWSER_UA;
+/** 设为 false 可关闭 auto 链中对该门户的查询 */
+const PORTAL218_IN_AUTO = true;
 
 /** 设为 1/true 时打印越航请求详情到服务端日志（含伪装 token 与 sign，勿长期开启） */
 const OIS_DEBUG = /^1|true|yes$/i.test(String(process.env.OIS_DEBUG || '').trim());
@@ -305,6 +316,38 @@ function httpOrHttpsGetText(urlString, headers) {
         resolve({
           status: res.statusCode || 0,
           text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** GET：返回 status、body、headers（用于取 Set-Cookie / JSESSIONID） */
+function httpGetFullResponse(urlString, headers) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlString);
+    const isHttps = u.protocol === 'https:';
+    const defaultPort = isHttps ? 443 : 80;
+    const port = u.port ? Number(u.port) : defaultPort;
+    const lib = isHttps ? https : http;
+    const hostHeader = u.port ? `${u.hostname}:${u.port}` : u.hostname;
+    const opts = {
+      hostname: u.hostname,
+      port,
+      path: `${u.pathname}${u.search}`,
+      method: 'GET',
+      headers: { Host: hostHeader, ...(headers || {}) },
+    };
+    const req = lib.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+          headers: res.headers,
         });
       });
     });
@@ -1048,6 +1091,187 @@ async function callWawayTrack(mailNoList) {
   return callWawayTrackPublicFetch(code);
 }
 
+function portal218CookieFromResponseHeaders(headers) {
+  const sc = headers && headers['set-cookie'];
+  if (!sc) return '';
+  const list = Array.isArray(sc) ? sc : [sc];
+  return list
+    .map((line) => String(line).split(';')[0].trim())
+    .filter(Boolean)
+    .join('; ');
+}
+
+async function portal218EnsureSessionCookie() {
+  const r = await httpGetFullResponse(`${PORTAL218_BASE}/track`, {
+    'User-Agent': PORTAL218_BROWSER_UA,
+    Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
+  });
+  return portal218CookieFromResponseHeaders(r.headers);
+}
+
+function portal218AjaxHeaders(cookie, extra) {
+  const h = {
+    'User-Agent': PORTAL218_BROWSER_UA,
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Referer: PORTAL218_REFERER,
+    Origin: PORTAL218_ORIGIN,
+    'X-Requested-With': 'XMLHttpRequest',
+    ...(extra || {}),
+  };
+  if (cookie) h.Cookie = cookie;
+  return h;
+}
+
+function portal218StripHtmlInner(s) {
+  return String(s || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 解析 /trackItem 返回的 HTML 内表格行为 time / desc */
+function portal218ParseTrackItemHtml(html) {
+  const tracks = [];
+  const h = String(html || '');
+  if (!h || h.length < 30) return tracks;
+  if (/请求错误/i.test(h) && !/<table/i.test(h)) return tracks;
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m;
+  while ((m = trRe.exec(h))) {
+    const inner = m[1];
+    const tds = [];
+    let tdM;
+    const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    while ((tdM = tdRe.exec(inner))) {
+      tds.push(portal218StripHtmlInner(tdM[1]));
+    }
+    if (tds.length >= 2) {
+      const time = tds[0];
+      const desc = tds.slice(1).join(' · ');
+      if (desc && time.length < 120) {
+        tracks.push({ time, desc });
+      }
+    }
+  }
+  return tracks;
+}
+
+function portal218PickRow(rows, code) {
+  const c = String(code || '').trim().toUpperCase();
+  const fields = [
+    'waybillnumber',
+    'tracknumber',
+    'customernumber1',
+    'systemnumber',
+    'newtracknumber',
+  ];
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+    if (!r || typeof r !== 'object') continue;
+    for (let j = 0; j < fields.length; j += 1) {
+      const f = fields[j];
+      if (r[f] != null && String(r[f]).trim().toUpperCase() === c) {
+        return r;
+      }
+    }
+  }
+  return rows[0];
+}
+
+function portal218SummaryTracksFromListRow(row) {
+  const time = row.outdate != null ? String(row.outdate) : '';
+  const parts = [];
+  if (row.outdesc != null && String(row.outdesc).trim()) parts.push(String(row.outdesc));
+  if (row.outinfo != null && String(row.outinfo).trim()) parts.push(String(row.outinfo));
+  const desc = parts.join(' · ');
+  if (!time && !desc) return [];
+  return [{ time, desc }];
+}
+
+function isPortal218Usable(payload) {
+  return (
+    payload &&
+    payload.portal218 &&
+    Array.isArray(payload.portal218.tracks) &&
+    payload.portal218.tracks.length > 0
+  );
+}
+
+async function callPortal218Track(mailNoList) {
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  let cookie = '';
+  try {
+    cookie = await portal218EnsureSessionCookie();
+  } catch (e) {
+    console.error('[api/track] portal218 session (GET /track):', e.message || e);
+  }
+  const listBody = querystring.stringify({
+    'searchList.waybillnumber': code,
+    'searchListField.waybillnumber': PORTAL218_SEARCH_FIELD,
+    searchLang: 'zh',
+    page: 1,
+    limit: 30,
+  });
+  const listUrl = `${PORTAL218_BASE}/trackList`;
+  const { status, text } = await httpPostFormUrlEncodedWithHeaders(
+    listUrl,
+    listBody,
+    portal218AjaxHeaders(cookie)
+  );
+  if (status < 200 || status >= 300) {
+    throw new Error(`轨迹门户 trackList HTTP ${status}: ${(text || '').slice(0, 160)}`);
+  }
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`轨迹门户 trackList 非 JSON: ${(text || '').slice(0, 200)}`);
+  }
+  if (Number(raw.code) !== 0) {
+    throw new Error(raw.msg || `轨迹门户查询失败 code=${raw.code}`);
+  }
+  const rows = Array.isArray(raw.data) ? raw.data : [];
+  if (!rows.length) {
+    return { __autoProvider: 'portal218', portal218: { orderNum: code, tracks: [] } };
+  }
+  const row = portal218PickRow(rows, code);
+  let tracks = [];
+  const pkid = row && row.pkid;
+  if (pkid != null && pkid !== '') {
+    try {
+      const itemBody = querystring.stringify({
+        orderpkid: String(pkid),
+        waybillnumber:
+          row.waybillnumber != null && String(row.waybillnumber).trim()
+            ? String(row.waybillnumber)
+            : code,
+        searchLang: 'zh',
+      });
+      const itemUrl = `${PORTAL218_BASE}/trackItem`;
+      const ir = await httpPostFormUrlEncodedWithHeaders(itemUrl, itemBody, {
+        ...portal218AjaxHeaders(cookie, {
+          Accept: 'text/html,application/xhtml+xml,*/*',
+        }),
+      });
+      if (ir.status >= 200 && ir.status < 300 && ir.text) {
+        tracks = portal218ParseTrackItemHtml(ir.text);
+      }
+    } catch (e) {
+      console.error('[api/track] portal218 trackItem:', e.message || e);
+    }
+  }
+  if (!tracks.length) {
+    tracks = portal218SummaryTracksFromListRow(row);
+  }
+  return { __autoProvider: 'portal218', portal218: { orderNum: code, tracks } };
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
@@ -1070,6 +1294,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
       if (isWawayUsable(ww)) return ww;
     } catch (err) {
       console.error('[api/track] auto fallback waway:', err.message || err);
+    }
+  }
+
+  if (PORTAL218_IN_AUTO) {
+    try {
+      const p218 = await callPortal218Track(mailNoList);
+      if (isPortal218Usable(p218)) return p218;
+    } catch (err) {
+      console.error('[api/track] auto fallback portal218:', err.message || err);
     }
   }
 
@@ -1205,7 +1438,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -1239,7 +1472,12 @@ module.exports = async (req, res) => {
         bodyWaway: {
           provider: 'waway',
           trackingNumber: '华唯单号',
-          note: '华唯请求 URL 已写死在 api/track.js（WAWAY_TRACK_URL_TEMPLATE），无需配置环境变量',
+          note: '华唯 URL 已写死在 api/track.js（WAWAY_TRACK_URL_TEMPLATE）',
+        },
+        bodyPortal218: {
+          provider: 'portal218',
+          trackingNumber: '单号',
+          note: '218.244.139.186:9999 轨迹门户，请求写在 api/track.js',
         },
       },
     });
@@ -1288,6 +1526,8 @@ module.exports = async (req, res) => {
       });
     } else if (provider === 'waway' || provider === 'uhuawei' || provider === 'waw') {
       data = await callWawayTrack(mailNoList);
+    } else if (provider === 'portal218' || provider === 'tms218' || provider === '218track') {
+      data = await callPortal218Track(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }

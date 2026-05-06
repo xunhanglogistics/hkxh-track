@@ -11,7 +11,7 @@
  * SZ56T_API_BASE（华磊/sz56t URL1 根；POST …/selectTrack.htm?documentCode=）
  * WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY（POST form gettrack，见货代 API 文档）
  * OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO（越航轨迹 queryTraceoutList）
- * 华唯轨迹 URL 已写死在代码中，无需环境变量
+ * 华唯轨迹 URL 及 218.244 门户已写死在代码中，无需环境变量
  */
 const crypto = require('crypto');
 const querystring = require('querystring');
@@ -64,6 +64,14 @@ const WAWAY_TRACK_REFERER = 'http://www.uhuawei.com/home/track';
 const WAWAY_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const WAWAY_IN_AUTO = true;
+
+const PORTAL218_BASE = 'http://218.244.139.186:9999';
+const PORTAL218_REFERER = 'http://218.244.139.186:9999/track';
+const PORTAL218_ORIGIN = 'http://218.244.139.186:9999';
+const PORTAL218_SEARCH_FIELD =
+  'border.systemnumber,border.customernumber1,border.waybillnumber,border.tracknumber,border.newtracknumber,border.fbanumber';
+const PORTAL218_BROWSER_UA = WAWAY_BROWSER_UA;
+const PORTAL218_IN_AUTO = true;
 
 let oisTokenCache = { token: '', at: 0 };
 const OIS_TOKEN_TTL_MS = 25 * 60 * 1000;
@@ -664,6 +672,188 @@ async function callWawayTrack(mailNoList) {
   return callWawayTrackPublicFetch(code);
 }
 
+async function portal218EnsureSessionCookie() {
+  const res = await fetch(`${PORTAL218_BASE}/track`, {
+    method: 'GET',
+    headers: {
+      'User-Agent': PORTAL218_BROWSER_UA,
+      Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
+    },
+    redirect: 'follow',
+  });
+  await res.text();
+  let jar = '';
+  if (typeof res.headers.getSetCookie === 'function') {
+    const arr = res.headers.getSetCookie();
+    if (Array.isArray(arr) && arr.length) {
+      jar = arr.map((c) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+    }
+  }
+  return jar;
+}
+
+function portal218FormHeaders(accept, cookie) {
+  const h = {
+    'User-Agent': PORTAL218_BROWSER_UA,
+    Accept: accept || 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Referer: PORTAL218_REFERER,
+    Origin: PORTAL218_ORIGIN,
+    'X-Requested-With': 'XMLHttpRequest',
+    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+  };
+  if (cookie) h.Cookie = cookie;
+  return h;
+}
+
+function portal218StripHtmlInner(s) {
+  return String(s || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function portal218ParseTrackItemHtml(html) {
+  const tracks = [];
+  const h = String(html || '');
+  if (!h || h.length < 30) return tracks;
+  if (/请求错误/i.test(h) && !/<table/i.test(h)) return tracks;
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m;
+  while ((m = trRe.exec(h))) {
+    const inner = m[1];
+    const tds = [];
+    let tdM;
+    const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    while ((tdM = tdRe.exec(inner))) {
+      tds.push(portal218StripHtmlInner(tdM[1]));
+    }
+    if (tds.length >= 2) {
+      const time = tds[0];
+      const desc = tds.slice(1).join(' · ');
+      if (desc && time.length < 120) {
+        tracks.push({ time, desc });
+      }
+    }
+  }
+  return tracks;
+}
+
+function portal218PickRow(rows, code) {
+  const c = String(code || '').trim().toUpperCase();
+  const fields = [
+    'waybillnumber',
+    'tracknumber',
+    'customernumber1',
+    'systemnumber',
+    'newtracknumber',
+  ];
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+    if (!r || typeof r !== 'object') continue;
+    for (let j = 0; j < fields.length; j += 1) {
+      const f = fields[j];
+      if (r[f] != null && String(r[f]).trim().toUpperCase() === c) {
+        return r;
+      }
+    }
+  }
+  return rows[0];
+}
+
+function portal218SummaryTracksFromListRow(row) {
+  const time = row.outdate != null ? String(row.outdate) : '';
+  const parts = [];
+  if (row.outdesc != null && String(row.outdesc).trim()) parts.push(String(row.outdesc));
+  if (row.outinfo != null && String(row.outinfo).trim()) parts.push(String(row.outinfo));
+  const desc = parts.join(' · ');
+  if (!time && !desc) return [];
+  return [{ time, desc }];
+}
+
+function isPortal218Usable(payload) {
+  return (
+    payload &&
+    payload.portal218 &&
+    Array.isArray(payload.portal218.tracks) &&
+    payload.portal218.tracks.length > 0
+  );
+}
+
+async function callPortal218Track(mailNoList) {
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  let cookie = '';
+  try {
+    cookie = await portal218EnsureSessionCookie();
+  } catch (e) {
+    console.error('[scf/track] portal218 session (GET /track):', e.message || e);
+  }
+  const listBody = new URLSearchParams({
+    'searchList.waybillnumber': code,
+    'searchListField.waybillnumber': PORTAL218_SEARCH_FIELD,
+    searchLang: 'zh',
+    page: '1',
+    limit: '30',
+  });
+  const res = await fetch(`${PORTAL218_BASE}/trackList`, {
+    method: 'POST',
+    headers: portal218FormHeaders(undefined, cookie),
+    body: listBody.toString(),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`轨迹门户 trackList HTTP ${res.status}: ${text.slice(0, 160)}`);
+  }
+  let raw;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(`轨迹门户 trackList 非 JSON: ${text.slice(0, 200)}`);
+  }
+  if (Number(raw.code) !== 0) {
+    throw new Error(raw.msg || `轨迹门户查询失败 code=${raw.code}`);
+  }
+  const rows = Array.isArray(raw.data) ? raw.data : [];
+  if (!rows.length) {
+    return { __autoProvider: 'portal218', portal218: { orderNum: code, tracks: [] } };
+  }
+  const row = portal218PickRow(rows, code);
+  let tracks = [];
+  const pkid = row && row.pkid;
+  if (pkid != null && pkid !== '') {
+    try {
+      const itemBody = new URLSearchParams({
+        orderpkid: String(pkid),
+        waybillnumber:
+          row.waybillnumber != null && String(row.waybillnumber).trim()
+            ? String(row.waybillnumber)
+            : code,
+        searchLang: 'zh',
+      });
+      const ir = await fetch(`${PORTAL218_BASE}/trackItem`, {
+        method: 'POST',
+        headers: portal218FormHeaders('text/html,application/xhtml+xml,*/*', cookie),
+        body: itemBody.toString(),
+      });
+      const iText = await ir.text();
+      if (ir.ok && iText) {
+        tracks = portal218ParseTrackItemHtml(iText);
+      }
+    } catch (e) {
+      console.error('[scf/track] portal218 trackItem:', e.message || e);
+    }
+  }
+  if (!tracks.length) {
+    tracks = portal218SummaryTracksFromListRow(row);
+  }
+  return { __autoProvider: 'portal218', portal218: { orderNum: code, tracks } };
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
   const speedafRaw = await callSpeedaf(mailNoList);
@@ -730,6 +920,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
       if (isWawayUsable(ww)) return ww;
     } catch (err) {
       console.error('[scf/track] auto fallback waway:', err.message || err);
+    }
+  }
+
+  if (PORTAL218_IN_AUTO) {
+    try {
+      const p218 = await callPortal218Track(mailNoList);
+      if (isPortal218Usable(p218)) return p218;
+    } catch (err) {
+      console.error('[scf/track] auto fallback portal218:', err.message || err);
     }
   }
 
@@ -844,8 +1043,8 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway',
-      note: 'POST：auto 末尾可接 WMS / 越航 OIS / 华唯（URL 已写死在代码）',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218',
+      note: 'POST：auto 可接 WMS / OIS / 华唯 / 218 门户（URL 已写死在代码）',
     });
   }
 
@@ -891,6 +1090,8 @@ exports.main_handler = async (event) => {
       });
     } else if (provider === 'waway' || provider === 'uhuawei' || provider === 'waw') {
       data = await callWawayTrack(mailNoList);
+    } else if (provider === 'portal218' || provider === 'tms218' || provider === '218track') {
+      data = await callPortal218Track(mailNoList);
     } else {
       data = await callSpeedaf(mailNoList);
     }
