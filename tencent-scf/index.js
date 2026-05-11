@@ -141,7 +141,13 @@ function isSpeedafEffectivelyEmpty(raw) {
   if (raw.data !== undefined) data = raw.data;
   if (!Array.isArray(data) || data.length === 0) return true;
   const tracks = data[0] && data[0].tracks;
-  return !Array.isArray(tracks) || tracks.length === 0;
+  if (!Array.isArray(tracks) || tracks.length === 0) return true;
+  return !tracks.some((tk) => {
+    if (!tk || typeof tk !== 'object') return false;
+    const msg = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
+    const t = tk.time || tk.trackTime || '';
+    return String(msg).trim() !== '' || String(t).trim() !== '';
+  });
 }
 
 function isYanwenHasUsableResult(yw) {
@@ -475,11 +481,37 @@ function oisShouldRetryResultCode(rc) {
   return rc === 1002 || rc === 1004 || rc === 1005;
 }
 
+function oisFlattenBodyForTrace(bodyArr) {
+  const rows = [];
+  (bodyArr || []).forEach((job) => {
+    if (!job || typeof job !== 'object') return;
+    if (Array.isArray(job.podInfoDTOList) && job.podInfoDTOList.length > 0) {
+      job.podInfoDTOList.forEach((d) => {
+        if (d) rows.push(d);
+      });
+    } else {
+      rows.push(job);
+    }
+  });
+  return rows;
+}
+
+function oisRowHasDisplayableTrace(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (Array.isArray(row.podInfoDTOList) && row.podInfoDTOList.length > 0) return true;
+  if (row.remark != null && String(row.remark).trim()) return true;
+  if (row.scanTime != null && String(row.scanTime).trim()) return true;
+  if (typeof row.scanDatetime === 'number' && row.scanDatetime > 0) return true;
+  if (row.scanName != null && String(row.scanName).trim()) return true;
+  if (row.scanStation != null && String(row.scanStation).trim()) return true;
+  return false;
+}
+
 function isOisTraceUsable(raw) {
   if (!raw || Number(raw.result_code) !== 0) return false;
   const body = raw.body;
   if (!Array.isArray(body) || body.length === 0) return false;
-  return true;
+  return oisFlattenBodyForTrace(body).some(oisRowHasDisplayableTrace);
 }
 
 async function callOisQueryTrace(mailNoList, attempt, oisOpts) {
@@ -957,92 +989,169 @@ async function callNextslsTrack(mailNoList) {
 
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
-  const speedafRaw = await callSpeedaf(mailNoList);
-  if (!isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
+
+  const speedafP = (async () => {
+    try {
+      return await callSpeedaf(mailNoList);
+    } catch (err) {
+      console.error('[scf/track] auto parallel speedaf:', err.message || err);
+      return { success: false };
+    }
+  })();
+
+  const parallel = [];
 
   if (NEXTSLS_IN_AUTO) {
-    try {
-      const nx = await callNextslsTrack(mailNoList);
-      if (isNextslsUsable(nx)) return nx;
-    } catch (err) {
-      console.error('[scf/track] auto fallback nextsls:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const nx = await callNextslsTrack(mailNoList);
+          return { k: 'nextsls', v: nx };
+        } catch (err) {
+          console.error('[scf/track] auto parallel nextsls:', err.message || err);
+          return { k: 'nextsls', v: null };
+        }
+      })()
+    );
   }
 
   if (oisEnvReady()) {
-    try {
-      const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
-      if (isOisTraceUsable(ois)) {
-        return { __autoProvider: 'ois', ois };
-      }
-    } catch (err) {
-      console.error('[scf/track] auto fallback ois:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
+          return { k: 'ois', v: ois };
+        } catch (err) {
+          console.error('[scf/track] auto parallel ois:', err.message || err);
+          return { k: 'ois', v: null };
+        }
+      })()
+    );
   }
 
   if (PORTAL218_IN_AUTO) {
-    try {
-      const p218 = await callPortal218Track(mailNoList);
-      if (isPortal218Usable(p218)) return p218;
-    } catch (err) {
-      console.error('[scf/track] auto fallback portal218:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const p218 = await callPortal218Track(mailNoList);
+          return { k: 'portal218', v: p218 };
+        } catch (err) {
+          console.error('[scf/track] auto parallel portal218:', err.message || err);
+          return { k: 'portal218', v: null };
+        }
+      })()
+    );
   }
 
   if (WAWAY_IN_AUTO) {
-    try {
-      const ww = await callWawayTrack(mailNoList);
-      if (isWawayUsable(ww)) return ww;
-    } catch (err) {
-      console.error('[scf/track] auto fallback waway:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const ww = await callWawayTrack(mailNoList);
+          return { k: 'waway', v: ww };
+        } catch (err) {
+          console.error('[scf/track] auto parallel waway:', err.message || err);
+          return { k: 'waway', v: null };
+        }
+      })()
+    );
   }
 
   if (YW56_AUTHORIZATION) {
-    try {
-      const yw = await callYanwenTracking(mailNoList);
-      if (isYanwenHasUsableResult(yw)) {
-        return { __autoProvider: 'yanwen', ...yw };
-      }
-    } catch (err) {
-      console.error('[scf/track] auto fallback yanwen:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const yw = await callYanwenTracking(mailNoList);
+          return { k: 'yanwen', v: yw };
+        } catch (err) {
+          console.error('[scf/track] auto parallel yanwen:', err.message || err);
+          return { k: 'yanwen', v: null };
+        }
+      })()
+    );
   }
 
   if (kingtransEnvReady()) {
-    try {
-      const kt = await callKingtransTrack(mailNoList);
-      if (isKingtransHasUsableResult(kt)) {
-        return { __autoProvider: 'kingtrans', ...kt };
-      }
-    } catch (err) {
-      console.error('[scf/track] auto fallback kingtrans:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const kt = await callKingtransTrack(mailNoList);
+          return { k: 'kingtrans', v: kt };
+        } catch (err) {
+          console.error('[scf/track] auto parallel kingtrans:', err.message || err);
+          return { k: 'kingtrans', v: null };
+        }
+      })()
+    );
   }
 
   if (sz56tEnvReady()) {
-    try {
-      const sz = await callSz56tTrack(mailNoList);
-      if (isSz56tHasUsableResult(sz)) {
-        return { __autoProvider: 'sz56t', sz56t: sz };
-      }
-    } catch (err) {
-      console.error('[scf/track] auto fallback sz56t:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const sz = await callSz56tTrack(mailNoList);
+          return { k: 'sz56t', v: sz };
+        } catch (err) {
+          console.error('[scf/track] auto parallel sz56t:', err.message || err);
+          return { k: 'sz56t', v: null };
+        }
+      })()
+    );
   }
 
   if (wmsEnvReady()) {
-    try {
-      const wms = await callWmsGetTrack(mailNoList);
-      if (isWmsGetTrackUsable(wms)) {
-        return { __autoProvider: 'wms', wms };
-      }
-    } catch (err) {
-      console.error('[scf/track] auto fallback wms gettrack:', err.message || err);
-    }
+    parallel.push(
+      (async () => {
+        try {
+          const wms = await callWmsGetTrack(mailNoList);
+          return { k: 'wms', v: wms };
+        } catch (err) {
+          console.error('[scf/track] auto parallel wms:', err.message || err);
+          return { k: 'wms', v: null };
+        }
+      })()
+    );
   }
 
-  return speedafRaw;
+  const othersP = parallel.length ? Promise.all(parallel) : Promise.resolve([]);
+
+  const speedafRaw = await speedafP;
+  if (speedafRaw != null && !isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
+
+  const parts = await othersP;
+  const bag = {};
+  for (let i = 0; i < parts.length; i += 1) {
+    const p = parts[i];
+    bag[p.k] = p.v;
+  }
+
+  if (NEXTSLS_IN_AUTO && bag.nextsls && isNextslsUsable(bag.nextsls)) return bag.nextsls;
+
+  if (oisEnvReady() && bag.ois && isOisTraceUsable(bag.ois)) {
+    return { __autoProvider: 'ois', ois: bag.ois };
+  }
+
+  if (PORTAL218_IN_AUTO && bag.portal218 && isPortal218Usable(bag.portal218)) return bag.portal218;
+
+  if (WAWAY_IN_AUTO && bag.waway && isWawayUsable(bag.waway)) return bag.waway;
+
+  if (YW56_AUTHORIZATION && bag.yanwen && isYanwenHasUsableResult(bag.yanwen)) {
+    return { __autoProvider: 'yanwen', ...bag.yanwen };
+  }
+
+  if (kingtransEnvReady() && bag.kingtrans && isKingtransHasUsableResult(bag.kingtrans)) {
+    return { __autoProvider: 'kingtrans', ...bag.kingtrans };
+  }
+
+  if (sz56tEnvReady() && bag.sz56t && isSz56tHasUsableResult(bag.sz56t)) {
+    return { __autoProvider: 'sz56t', sz56t: bag.sz56t };
+  }
+
+  if (wmsEnvReady() && bag.wms && isWmsGetTrackUsable(bag.wms)) {
+    return { __autoProvider: 'wms', wms: bag.wms };
+  }
+
+  return speedafRaw != null ? speedafRaw : { success: false };
 }
 
 async function callYanwenTracking(mailNoList) {
