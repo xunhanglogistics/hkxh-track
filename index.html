@@ -866,7 +866,7 @@
                 footer_copyright: '© 2026 深圳市海凯讯航国际货运代理有限公司 保留所有权利',
                 page_title: '海凯讯航国际物流 | 专业跨境物流解决方案',
                 msg_track_enter: '请输入物流单号',
-                msg_track_loading: '正在查询中，请稍候...（合并查询会依次访问多个渠道，可能需要数十秒）',
+                msg_track_loading: '正在查询中，请稍候...',
                 msg_track_fail: '查询失败，请稍后重试。若浏览器提示跨域(CORS)错误，需通过后端代理调用该接口。',
                 msg_track_proxy_unavailable: '无法完成查询请求（常见于：当前网络拦截跨境 HTTPS POST、DNS 污染或防火墙）。若地址栏能打开代理链接但此处失败，多为运营商对 POST 的限制。请将代理部署到国内可访问节点（见项目内 tencent-scf），或换网络/开 VPN 后再试。',
                 msg_track_proxy_http: '代理已响应但返回错误状态，详情如下（可截图给技术人员）：',
@@ -936,7 +936,7 @@
                 footer_copyright: '© 2026 Shenzhen HKXH International Freight Forwarding Co., Ltd. All rights reserved.',
                 page_title: 'HKXH International Logistics | Cross-Border Logistics',
                 msg_track_enter: 'Please enter tracking number',
-                msg_track_loading: 'Searching... (may take up to a minute while querying multiple carriers)',
+                msg_track_loading: 'Searching...',
                 msg_track_fail: 'Query failed. If you see a CORS error, use a backend proxy.',
                 msg_track_proxy_unavailable: 'Could not complete the request (often: network blocks cross-border HTTPS POST, DNS, or firewall). If the proxy URL opens in the tab but query fails here, your ISP may block POST. Deploy the proxy in-region (see tencent-scf in the repo) or try another network/VPN.',
                 msg_track_proxy_http: 'The proxy responded with an error. Details below (you can send a screenshot):',
@@ -1444,7 +1444,7 @@
         function displayTrackLine(s) {
             return escapeHtmlTrack(sanitizeTrackDisplayText(s));
         }
-        /** 合并查询时服务端会串行访问多家接口，浏览器侧设上限避免长时间停在「查询中」 */
+        /** 合并查询；浏览器侧设超时避免长时间停在「查询中」 */
         var TRACK_PROXY_TIMEOUT_MS = 55000;
         async function fetchTrackProxyPost(payload) {
             var ctrl = new AbortController();

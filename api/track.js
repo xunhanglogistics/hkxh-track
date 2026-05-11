@@ -14,7 +14,7 @@
  *   WMS_SERVICE_URL — WMS「获取订单跟踪记录」完整 POST 地址（…/PublicService.asmx/ServiceInterfaceUTF8）
  *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
  *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
- *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）；auto 模式下与 NextSLS/218/华唯等**并行**请求，再按原优先级取第一条可用轨迹（详见 resolveAutoTrack）
+ *   越航 OIS 运单轨迹 queryTraceoutList（表单+签名 header）；auto 与其它渠道并行，按优先级抢先合并：高顺位一旦有效即返回
  *     OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO
  *     可选 OIS_IS_TRANSLATE_EN；POST 带 lang（zh/en）时优先按界面语言映射 isTranslateEn（中文 0 / 英文 1）
  *     OIS_DEBUG=1 — 临时在 Vercel Logs 打印发往越航的 getAuth / queryTraceoutList 报文结构（含 token/sign，排查完请关闭）
@@ -1449,6 +1449,63 @@ async function callNextslsTrack(mailNoList) {
   };
 }
 
+/**
+ * 多渠并行：名次靠前者未完成前不采纳后者；一旦可确定当前顺位有效则立即 resolve（不必等更后面的渠道）。
+ * 已发出的 HTTP 无法在 Node 内统一 abort，余下请求仍可能在云函数后台跑完。
+ */
+function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
+  const n = handlers.length;
+  const status = new Array(n).fill('pending');
+  const results = new Array(n);
+  let resolved = false;
+
+  return new Promise((resolve) => {
+    const tryResolve = () => {
+      if (resolved) return;
+      for (let i = 0; i < n; i += 1) {
+        let higherAllDoneInvalid = true;
+        for (let j = 0; j < i; j += 1) {
+          if (status[j] === 'pending') {
+            higherAllDoneInvalid = false;
+            break;
+          }
+          if (handlers[j].isValid(results[j])) {
+            higherAllDoneInvalid = false;
+            break;
+          }
+        }
+        if (!higherAllDoneInvalid) continue;
+        if (status[i] !== 'done') continue;
+        if (handlers[i].isValid(results[i])) {
+          resolved = true;
+          resolve(handlers[i].format(results[i]));
+          return;
+        }
+      }
+      if (status.every((s) => s === 'done')) {
+        resolved = true;
+        resolve(fallbackFn(results));
+      }
+    };
+
+    handlers.forEach((h, i) => {
+      Promise.resolve()
+        .then(() => h.start())
+        .then((r) => {
+          results[i] = r;
+          status[i] = 'done';
+          tryResolve();
+        })
+        .catch((err) => {
+          console.error(`${logPrefix} ${h.id}:`, err.message || err);
+          results[i] = null;
+          status[i] = 'done';
+          tryResolve();
+        });
+    });
+  });
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
 
@@ -1456,164 +1513,128 @@ async function resolveAutoTrack(mailNoList, ctx) {
     try {
       return await callSpeedaf(mailNoList);
     } catch (err) {
-      console.error('[api/track] auto parallel speedaf:', err.message || err);
+      console.error('[api/track] auto race speedaf:', err.message || err);
       return { success: false };
     }
   })();
 
-  const parallel = [];
+  const handlers = [
+    {
+      id: 'speedaf',
+      start: () => speedafP,
+      isValid: (r) => r != null && !isSpeedafEffectivelyEmpty(r),
+      format: (r) => r,
+    },
+  ];
 
   if (NEXTSLS_IN_AUTO) {
-    parallel.push(
-      (async () => {
-        try {
-          const nx = await callNextslsTrack(mailNoList);
-          return { k: 'nextsls', v: nx };
-        } catch (err) {
-          console.error('[api/track] auto parallel nextsls:', err.message || err);
-          return { k: 'nextsls', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'nextsls',
+      start: () =>
+        callNextslsTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race nextsls:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isNextslsUsable(r),
+      format: (r) => r,
+    });
   }
 
   if (oisEnvReady()) {
-    parallel.push(
-      (async () => {
-        try {
-          const ois = await callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn });
-          return { k: 'ois', v: ois };
-        } catch (err) {
-          console.error('[api/track] auto parallel ois:', err.message || err);
-          return { k: 'ois', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'ois',
+      start: () =>
+        callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn }).catch((err) => {
+          console.error('[api/track] auto race ois:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isOisTraceUsable(r),
+      format: (r) => ({ __autoProvider: 'ois', ois: r }),
+    });
   }
 
   if (PORTAL218_IN_AUTO) {
-    parallel.push(
-      (async () => {
-        try {
-          const p218 = await callPortal218Track(mailNoList);
-          return { k: 'portal218', v: p218 };
-        } catch (err) {
-          console.error('[api/track] auto parallel portal218:', err.message || err);
-          return { k: 'portal218', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'portal218',
+      start: () =>
+        callPortal218Track(mailNoList).catch((err) => {
+          console.error('[api/track] auto race portal218:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isPortal218Usable(r),
+      format: (r) => r,
+    });
   }
 
   if (WAWAY_IN_AUTO) {
-    parallel.push(
-      (async () => {
-        try {
-          const ww = await callWawayTrack(mailNoList);
-          return { k: 'waway', v: ww };
-        } catch (err) {
-          console.error('[api/track] auto parallel waway:', err.message || err);
-          return { k: 'waway', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'waway',
+      start: () =>
+        callWawayTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race waway:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isWawayUsable(r),
+      format: (r) => r,
+    });
   }
 
   if (YW56_AUTHORIZATION) {
-    parallel.push(
-      (async () => {
-        try {
-          const yw = await callYanwenTracking(mailNoList);
-          return { k: 'yanwen', v: yw };
-        } catch (err) {
-          console.error('[api/track] auto parallel yanwen:', err.message || err);
-          return { k: 'yanwen', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'yanwen',
+      start: () =>
+        callYanwenTracking(mailNoList).catch((err) => {
+          console.error('[api/track] auto race yanwen:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isYanwenHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'yanwen', ...r }),
+    });
   }
 
   if (kingtransEnvReady()) {
-    parallel.push(
-      (async () => {
-        try {
-          const kt = await callKingtransTrack(mailNoList);
-          return { k: 'kingtrans', v: kt };
-        } catch (err) {
-          console.error('[api/track] auto parallel kingtrans:', err.message || err);
-          return { k: 'kingtrans', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'kingtrans',
+      start: () =>
+        callKingtransTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race kingtrans:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isKingtransHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'kingtrans', ...r }),
+    });
   }
 
   if (sz56tEnvReady()) {
-    parallel.push(
-      (async () => {
-        try {
-          const sz = await callSz56tTrack(mailNoList);
-          return { k: 'sz56t', v: sz };
-        } catch (err) {
-          console.error('[api/track] auto parallel sz56t:', err.message || err);
-          return { k: 'sz56t', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'sz56t',
+      start: () =>
+        callSz56tTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race sz56t:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isSz56tHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'sz56t', sz56t: r }),
+    });
   }
 
   if (wmsEnvReady()) {
-    parallel.push(
-      (async () => {
-        try {
-          const wms = await callWmsGetTrack(mailNoList);
-          return { k: 'wms', v: wms };
-        } catch (err) {
-          console.error('[api/track] auto parallel wms:', err.message || err);
-          return { k: 'wms', v: null };
-        }
-      })()
-    );
+    handlers.push({
+      id: 'wms',
+      start: () =>
+        callWmsGetTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race wms:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isWmsGetTrackUsable(r),
+      format: (r) => ({ __autoProvider: 'wms', wms: r }),
+    });
   }
 
-  const othersP = parallel.length ? Promise.all(parallel) : Promise.resolve([]);
-
-  const speedafRaw = await speedafP;
-  if (speedafRaw != null && !isSpeedafEffectivelyEmpty(speedafRaw)) return speedafRaw;
-
-  const parts = await othersP;
-  const bag = {};
-  for (let i = 0; i < parts.length; i += 1) {
-    const p = parts[i];
-    bag[p.k] = p.v;
-  }
-
-  if (NEXTSLS_IN_AUTO && bag.nextsls && isNextslsUsable(bag.nextsls)) return bag.nextsls;
-
-  if (oisEnvReady() && bag.ois && isOisTraceUsable(bag.ois)) {
-    return { __autoProvider: 'ois', ois: bag.ois };
-  }
-
-  if (PORTAL218_IN_AUTO && bag.portal218 && isPortal218Usable(bag.portal218)) return bag.portal218;
-
-  if (WAWAY_IN_AUTO && bag.waway && isWawayUsable(bag.waway)) return bag.waway;
-
-  if (YW56_AUTHORIZATION && bag.yanwen && isYanwenHasUsableResult(bag.yanwen)) {
-    return { __autoProvider: 'yanwen', ...bag.yanwen };
-  }
-
-  if (kingtransEnvReady() && bag.kingtrans && isKingtransHasUsableResult(bag.kingtrans)) {
-    return { __autoProvider: 'kingtrans', ...bag.kingtrans };
-  }
-
-  if (sz56tEnvReady() && bag.sz56t && isSz56tHasUsableResult(bag.sz56t)) {
-    return { __autoProvider: 'sz56t', sz56t: bag.sz56t };
-  }
-
-  if (wmsEnvReady() && bag.wms && isWmsGetTrackUsable(bag.wms)) {
-    return { __autoProvider: 'wms', wms: bag.wms };
-  }
-
-  return speedafRaw != null ? speedafRaw : { success: false };
+  return raceAutoTrackMergeByPriority(handlers, '[api/track] auto race', (results) => {
+    const s = results[0];
+    return s != null ? s : { success: false };
+  });
 }
 
 async function callYanwenTracking(mailNoList) {
