@@ -1450,7 +1450,8 @@ async function callNextslsTrack(mailNoList) {
 }
 
 /**
- * 多渠并行：名次靠前者未完成前不采纳后者；一旦可确定当前顺位有效则立即 resolve（不必等更后面的渠道）。
+ * 多渠并行：速达非有有效轨迹则立即采用；若速达非返回为空/失败，则等其余渠道全部结束，
+ * 再按 handlers 顺序取第一个有效轨迹；若仍全无有效，则 fallbackFn（一般为速达非原始展示）。
  * 已发出的 HTTP 无法在 Node 内统一 abort，余下请求仍可能在云函数后台跑完。
  */
 function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
@@ -1462,20 +1463,19 @@ function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
   return new Promise((resolve) => {
     const tryResolve = () => {
       if (resolved) return;
-      for (let i = 0; i < n; i += 1) {
-        let higherAllDoneInvalid = true;
-        for (let j = 0; j < i; j += 1) {
-          if (status[j] === 'pending') {
-            higherAllDoneInvalid = false;
-            break;
-          }
-          if (handlers[j].isValid(results[j])) {
-            higherAllDoneInvalid = false;
-            break;
-          }
-        }
-        if (!higherAllDoneInvalid) continue;
-        if (status[i] !== 'done') continue;
+
+      if (n > 0 && status[0] === 'done' && handlers[0].isValid(results[0])) {
+        resolved = true;
+        resolve(handlers[0].format(results[0]));
+        return;
+      }
+
+      if (n > 0 && status[0] !== 'done') return;
+
+      for (let i = 1; i < n; i += 1) {
+        if (status[i] === 'pending') return;
+      }
+      for (let i = 1; i < n; i += 1) {
         if (handlers[i].isValid(results[i])) {
           resolved = true;
           resolve(handlers[i].format(results[i]));
@@ -1540,6 +1540,19 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
+  if (WAWAY_IN_AUTO) {
+    handlers.push({
+      id: 'waway',
+      start: () =>
+        callWawayTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race waway:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isWawayUsable(r),
+      format: (r) => r,
+    });
+  }
+
   if (oisEnvReady()) {
     handlers.push({
       id: 'ois',
@@ -1562,19 +1575,6 @@ async function resolveAutoTrack(mailNoList, ctx) {
           return null;
         }),
       isValid: (r) => r != null && isPortal218Usable(r),
-      format: (r) => r,
-    });
-  }
-
-  if (WAWAY_IN_AUTO) {
-    handlers.push({
-      id: 'waway',
-      start: () =>
-        callWawayTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race waway:', err.message || err);
-          return null;
-        }),
-      isValid: (r) => r != null && isWawayUsable(r),
       format: (r) => r,
     });
   }
