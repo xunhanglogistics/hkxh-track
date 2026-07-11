@@ -127,6 +127,13 @@ const NEXTSLS_IN_AUTO = true;
 /** 设为 1/true 时打印越航请求详情到服务端日志（含伪装 token 与 sign，勿长期开启） */
 const OIS_DEBUG = /^1|true|yes$/i.test(String(process.env.OIS_DEBUG || '').trim());
 
+/** 海凯讯航自有物流平台 tracking（需通过浏览器 F12 分析具体 API） */
+const HKXH_OLLOGISTIC_URL_TEMPLATE = 'https://hkxh.ollogistic.com/tracking';
+const HKXH_OLLOGISTIC_REFERER = 'https://hkxh.ollogistic.com/';
+const HKXH_OLLOGISTIC_BROWSER_UA = WAWAY_BROWSER_UA;
+/** 设为 false 可关闭 auto 链中的 hkxh 查询 */
+const HKXH_OLLOGISTIC_IN_AUTO = true;
+
 let oisTokenCache = { token: '', at: 0 };
 const OIS_TOKEN_TTL_MS = 25 * 60 * 1000;
 
@@ -1160,6 +1167,187 @@ async function callWawayTrack(mailNoList) {
   return callWawayTrackPublicFetch(code);
 }
 
+/** 海凯讯航自有平台：从响应中尝试解析 JSON（参考华唯模式） */
+function hkxhTryParseJsonFromResponse(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  // 尝试直接解析 JSON
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try {
+      return JSON.parse(t);
+    } catch (_) {
+      /* 继续尝试嵌入 */
+    }
+  }
+  // 尝试查找可能的 JSON 对象
+  const near = (key) => {
+    const pos = t.indexOf(key);
+    if (pos < 0) return null;
+    for (let start = pos; start >= 0; start -= 1) {
+      if (t[start] !== '{') continue;
+      let depth = 0;
+      for (let j = start; j < t.length; j += 1) {
+        const ch = t[j];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            try {
+              return JSON.parse(t.slice(start, j + 1));
+            } catch (_) {
+              break;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+  // 常见轨迹响应的键
+  return near('"data"') || near('"Data"') || near('"tracks"') || near('"Tracks"') ||
+         near('"code"') || near('"Code"') || near('"success"') || near('"Success"');
+}
+
+/** 从解析后的 JSON 提取轨迹并格式化 */
+function hkxhFromParsedJson(raw, fallbackOrderNum) {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('海凯讯航：无法解析为 JSON 对象');
+  }
+
+  // 检查是否有错误码
+  if (raw.code != null && Number(raw.code) !== 0 && Number(raw.code) !== 200) {
+    throw new Error(raw.msg || raw.message || `海凯讯航查询失败 code=${raw.code}`);
+  }
+  if (raw.Code != null && String(raw.Code) !== '200' && String(raw.Code) !== '0') {
+    throw new Error(raw.Message || raw.msg || `海凯讯航查单失败 Code=${raw.Code}`);
+  }
+  if (raw.success === false) {
+    throw new Error(raw.message || '海凯讯航查询失败');
+  }
+
+  const tracks = [];
+  let orderNum = fallbackOrderNum;
+
+  // 尝试多种常见的轨迹数据结构
+  // 1. data: [{time, desc, description, location, ...}]
+  if (raw.data && Array.isArray(raw.data)) {
+    const rows = raw.data;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!row || typeof row !== 'object') continue;
+      let time = '';
+      if (row.time != null) time = String(row.time);
+      else if (row.Time != null) time = String(row.Time);
+      else if (row.createDate != null) time = String(row.createDate);
+      else if (row.CreateDate != null) time = String(row.CreateDate);
+
+      if (time.includes('T')) time = time.replace('T', ' ');
+      const dot = time.indexOf('.');
+      if (dot > 0) time = time.slice(0, dot);
+
+      const parts = [];
+      if (row.desc != null) parts.push(String(row.desc));
+      else if (row.Desc != null) parts.push(String(row.Desc));
+      if (row.description != null) parts.push(String(row.description));
+      if (row.Description != null) parts.push(String(row.Description));
+      if (row.location != null && String(row.location) !== '') parts.push(String(row.location));
+      if (row.Location != null && String(row.Location) !== '') parts.push(String(row.Location));
+
+      tracks.push({
+        time,
+        desc: parts.join(' · '),
+      });
+    }
+    // 如果 data[0] 有 orderNum 等信息，提取
+    if (rows[0] && rows[0].orderNum != null) orderNum = String(rows[0].orderNum);
+    else if (rows[0] && rows[0].OrderNum != null) orderNum = String(rows[0].OrderNum);
+  }
+
+  // 2. tracks: [{time, desc}]
+  else if (raw.tracks && Array.isArray(raw.tracks)) {
+    const rows = raw.tracks;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!row || typeof row !== 'object') continue;
+      tracks.push({
+        time: row.time != null ? String(row.time) : (row.Time != null ? String(row.Time) : ''),
+        desc: row.desc != null ? String(row.desc) : (row.Desc != null ? String(row.Desc) : ''),
+      });
+    }
+  }
+
+  // 3. Tracks: [{Time, Desc}]
+  else if (raw.Tracks && Array.isArray(raw.Tracks)) {
+    const rows = raw.Tracks;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!row || typeof row !== 'object') continue;
+      tracks.push({
+        time: row.Time != null ? String(row.Time) : '',
+        desc: row.Desc != null ? String(row.Desc) : '',
+      });
+    }
+  }
+
+  // 4. datas: [{Datas: [{Time, Desc}]}]
+  else if (raw.Datas && Array.isArray(raw.Datas) && raw.Datas.length > 0) {
+    const first = raw.Datas[0];
+    if (first && first.OrderNum != null) orderNum = String(first.OrderNum);
+    const inner = first && first.Datas;
+    if (Array.isArray(inner)) {
+      for (let i = 0; i < inner.length; i += 1) {
+        const row = inner[i];
+        if (!row || typeof row !== 'object') continue;
+        tracks.push({
+          time: row.Time != null ? String(row.Time) : '',
+          desc: row.Desc != null ? String(row.Desc) : '',
+        });
+      }
+    }
+  }
+
+  return {
+    __autoProvider: 'hkxh',
+    hkxh: { orderNum, tracks },
+  };
+}
+
+async function callHkxhOllogisticTrackPublicFetch(code) {
+  // 构建 URL，添加查询参数
+  const url = `${HKXH_OLLOGISTIC_URL_TEMPLATE}?trackingNumber=${encodeURIComponent(code)}`;
+  const baseHeaders = {
+    'User-Agent': HKXH_OLLOGISTIC_BROWSER_UA,
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    Referer: HKXH_OLLOGISTIC_REFERER,
+  };
+  const { status, text } = await httpOrHttpsGetText(url, baseHeaders);
+  if (status < 200 || status >= 300) {
+    throw new Error(`海凯讯航查询 HTTP ${status}: ${(text || '').slice(0, 180)}`);
+  }
+  const raw = hkxhTryParseJsonFromResponse(text);
+  if (!raw) {
+    throw new Error('海凯讯航：响应中未找到可解析的轨迹 JSON');
+  }
+  return hkxhFromParsedJson(raw, code);
+}
+
+function isHkxhOllogisticUsable(payload) {
+  return (
+    payload &&
+    payload.hkxh &&
+    Array.isArray(payload.hkxh.tracks) &&
+    payload.hkxh.tracks.length > 0
+  );
+}
+
+/** 海凯讯航自有平台轨迹查询 */
+async function callHkxhOllogisticTrack(mailNoList) {
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+  return callHkxhOllogisticTrackPublicFetch(code);
+}
+
 function portal218CookieFromResponseHeaders(headers) {
   const sc = headers && headers['set-cookie'];
   if (!sc) return '';
@@ -1579,6 +1767,19 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
+  if (HKXH_OLLOGISTIC_IN_AUTO) {
+    handlers.push({
+      id: 'hkxh',
+      start: () =>
+        callHkxhOllogisticTrack(mailNoList).catch((err) => {
+          console.error('[api/track] auto race hkxh:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isHkxhOllogisticUsable(r),
+      format: (r) => r,
+    });
+  }
+
   if (YW56_AUTHORIZATION) {
     handlers.push({
       id: 'yanwen',
@@ -1722,7 +1923,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 + NextSLS proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 + HKXH + NextSLS proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -1762,6 +1963,11 @@ module.exports = async (req, res) => {
           provider: 'portal218',
           trackingNumber: '单号',
           note: '218.244.139.186:9999 轨迹门户，请求写在 api/track.js',
+        },
+        bodyHkxh: {
+          provider: 'hkxh',
+          trackingNumber: '海凯讯航运单号',
+          note: '海凯讯航自有平台轨迹查询，URL 已写死在 api/track.js',
         },
         bodyNextsls: {
           provider: 'nextsls',
@@ -1817,6 +2023,8 @@ module.exports = async (req, res) => {
       data = await callWawayTrack(mailNoList);
     } else if (provider === 'portal218' || provider === 'tms218' || provider === '218track') {
       data = await callPortal218Track(mailNoList);
+    } else if (provider === 'hkxh' || provider === 'ollogistic' || provider === 'hkxhtrack') {
+      data = await callHkxhOllogisticTrack(mailNoList);
     } else if (provider === 'nextsls' || provider === 'nextsls_track' || provider === 'ehub') {
       data = await callNextslsTrack(mailNoList);
     } else {
