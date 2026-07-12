@@ -26,6 +26,7 @@
  *     可选 OIS_TRACE_BODY1_MINIMAL=1 — body1 仅 isTranslateEn+noList+queryType（不含 companyNo，与货代成功日志一致）；请配 OIS_QUERY_TYPE（如运单号用 1）
  *   海凯讯航 ollogistic：POST https://business.logistic.mobi/api/WayBillTrackInfo/GetTracksNoAuthAsync?branchId=4069
  *     body 为 JSON 字符串数组如 ["单号"]；/tracking 页面本身只返回 SPA HTML，不能直接 GET 取轨迹
+ *     auto 合并：仅当响应含 details 轨迹数组时才算 hkxh 有效；无 details 时继续等其他渠道，以其他渠道有效数据为准，最后才回退 hkxh 订单概要
  *   华唯 / Waway：官网 GET 轨迹接口 URL 与 Referer 已写死在代码中（/pro/V1/Home/Track/{no}），无需环境变量；auto 链是否尝试由常量 WAWAY_IN_AUTO 控制
  *   货代轨迹门户 218.244.139.186:9999：先 GET /track 取 JSESSIONID，再 POST /trackList、/trackItem，带 Origin/Referer/Cookie（与浏览器 F12 一致）
  *   NextSLS ehub：https://tracking.nextsls.com/trace?app=… — GET lists（app id 写死）；auto 在速达非无结果后**优先**尝试；Vercel 上对 HTTPS 走 IPv4+SNI 以规避部分网络环境解析问题
@@ -1337,6 +1338,7 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
 
   const tracks = [];
   let orderNum = fallbackOrderNum;
+  let hasDetails = false;
 
   if (raw.data && Array.isArray(raw.data)) {
     const waybill = hkxhPickWaybillRow(raw.data, fallbackOrderNum);
@@ -1350,6 +1352,7 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
 
     const details = waybill.details || waybill.Details;
     if (Array.isArray(details) && details.length > 0) {
+      hasDetails = true;
       for (let i = 0; i < details.length; i += 1) {
         hkxhPushTrackRow(tracks, details[i]);
       }
@@ -1358,10 +1361,12 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
       hkxhPushWaybillSummary(tracks, waybill);
     }
   } else if (raw.tracks && Array.isArray(raw.tracks)) {
+    hasDetails = raw.tracks.length > 0;
     for (let i = 0; i < raw.tracks.length; i += 1) {
       hkxhPushTrackRow(tracks, raw.tracks[i]);
     }
   } else if (raw.Tracks && Array.isArray(raw.Tracks)) {
+    hasDetails = raw.Tracks.length > 0;
     for (let i = 0; i < raw.Tracks.length; i += 1) {
       hkxhPushTrackRow(tracks, raw.Tracks[i]);
     }
@@ -1369,7 +1374,8 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
     const first = raw.Datas[0];
     if (first && first.OrderNum != null) orderNum = String(first.OrderNum);
     const inner = first && first.Datas;
-    if (Array.isArray(inner)) {
+    if (Array.isArray(inner) && inner.length > 0) {
+      hasDetails = true;
       for (let i = 0; i < inner.length; i += 1) {
         hkxhPushTrackRow(tracks, inner[i]);
       }
@@ -1382,7 +1388,7 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
 
   return {
     __autoProvider: 'hkxh',
-    hkxh: { orderNum, tracks },
+    hkxh: { orderNum, tracks, hasDetails },
   };
 }
 
@@ -1417,9 +1423,31 @@ function isHkxhOllogisticUsable(payload) {
   return (
     payload &&
     payload.hkxh &&
+    payload.hkxh.hasDetails === true &&
     Array.isArray(payload.hkxh.tracks) &&
     payload.hkxh.tracks.some(hkxhTrackHasDisplayContent)
   );
+}
+
+/** auto 合并时：hkxh 仅有订单概要、无 details 轨迹，可作最后回退 */
+function isHkxhOllogisticSummaryFallback(payload) {
+  return (
+    payload &&
+    payload.hkxh &&
+    payload.hkxh.hasDetails !== true &&
+    Array.isArray(payload.hkxh.tracks) &&
+    payload.hkxh.tracks.some(hkxhTrackHasDisplayContent)
+  );
+}
+
+function pickHkxhSummaryFallback(results, handlers) {
+  for (let i = 0; i < handlers.length; i += 1) {
+    if (handlers[i].id !== 'hkxh') continue;
+    const r = results[i];
+    if (!isHkxhOllogisticSummaryFallback(r)) continue;
+    return handlers[i].format(r);
+  }
+  return null;
 }
 
 /** 海凯讯航自有平台轨迹查询 */
@@ -1918,6 +1946,8 @@ async function resolveAutoTrack(mailNoList, ctx) {
   }
 
   return raceAutoTrackMergeByPriority(handlers, '[api/track] auto race', (results) => {
+    const hkxhFallback = pickHkxhSummaryFallback(results, handlers);
+    if (hkxhFallback) return hkxhFallback;
     const s = results[0];
     return s != null ? s : { success: false };
   });
