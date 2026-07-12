@@ -1225,11 +1225,55 @@ function hkxhNormalizeTrackTime(value) {
   return time;
 }
 
+function hkxhWaybillStatusLabel(waybill) {
+  const status = Number(waybill.wayBillStatus || waybill.WayBillStatus || 0);
+  const stateType = Number(waybill.preWayBillStateType || waybill.PreWayBillStateType || 0);
+  const returnStatus = Number(
+    waybill.returnStatus != null ? waybill.returnStatus : waybill.ReturnStatus
+  );
+  if (returnStatus === -1) return '查询不到';
+  if (status > 0) {
+    if (status === 1 || status === 2) return '已入仓';
+    if (status === 3 || status === 4 || status === 5) return '运输中';
+    if (status === 6) return '已签收';
+  }
+  if (stateType === 1) return '已预录';
+  if (stateType === 2) return '已入仓';
+  if (stateType === 3) return '已退件';
+  if (stateType === 4) return '已作废';
+  return '已预录';
+}
+
+function hkxhTrackHasDisplayContent(track) {
+  return (
+    track &&
+    (String(track.time || '').trim() !== '' || String(track.desc || '').trim() !== '')
+  );
+}
+
+function hkxhPushWaybillSummary(tracks, waybill) {
+  if (!waybill || typeof waybill !== 'object') return;
+  let time = '';
+  if (waybill.transportTime != null) time = hkxhNormalizeTrackTime(waybill.transportTime);
+  else if (waybill.TransportTime != null) time = hkxhNormalizeTrackTime(waybill.TransportTime);
+  else if (waybill.signTime != null) time = hkxhNormalizeTrackTime(waybill.signTime);
+  else if (waybill.SignTime != null) time = hkxhNormalizeTrackTime(waybill.SignTime);
+
+  tracks.push({
+    time,
+    desc: `${hkxhWaybillStatusLabel(waybill)} · 暂无轨迹信息`,
+  });
+}
+
 function hkxhPushTrackRow(tracks, row) {
   if (!row || typeof row !== 'object') return;
   let time = '';
   if (row.createTime != null) time = hkxhNormalizeTrackTime(row.createTime);
   else if (row.CreateTime != null) time = hkxhNormalizeTrackTime(row.CreateTime);
+  else if (row.trackTime != null) time = hkxhNormalizeTrackTime(row.trackTime);
+  else if (row.TrackTime != null) time = hkxhNormalizeTrackTime(row.TrackTime);
+  else if (row.transportTime != null) time = hkxhNormalizeTrackTime(row.transportTime);
+  else if (row.TransportTime != null) time = hkxhNormalizeTrackTime(row.TransportTime);
   else if (row.time != null) time = hkxhNormalizeTrackTime(row.time);
   else if (row.Time != null) time = hkxhNormalizeTrackTime(row.Time);
   else if (row.createDate != null) time = hkxhNormalizeTrackTime(row.createDate);
@@ -1243,10 +1287,11 @@ function hkxhPushTrackRow(tracks, row) {
   if (row.location != null && String(row.location) !== '') parts.push(String(row.location));
   if (row.Location != null && String(row.Location) !== '') parts.push(String(row.Location));
 
-  tracks.push({
+  const track = {
     time,
     desc: parts.join(' · '),
-  });
+  };
+  if (hkxhTrackHasDisplayContent(track)) tracks.push(track);
 }
 
 function hkxhPickWaybillRow(rows, fallbackOrderNum) {
@@ -1304,12 +1349,13 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
     else if (waybill.WaybillCode != null) orderNum = String(waybill.WaybillCode);
 
     const details = waybill.details || waybill.Details;
-    if (Array.isArray(details)) {
+    if (Array.isArray(details) && details.length > 0) {
       for (let i = 0; i < details.length; i += 1) {
         hkxhPushTrackRow(tracks, details[i]);
       }
-    } else {
-      hkxhPushTrackRow(tracks, waybill);
+    }
+    if (!tracks.length) {
+      hkxhPushWaybillSummary(tracks, waybill);
     }
   } else if (raw.tracks && Array.isArray(raw.tracks)) {
     for (let i = 0; i < raw.tracks.length; i += 1) {
@@ -1372,7 +1418,7 @@ function isHkxhOllogisticUsable(payload) {
     payload &&
     payload.hkxh &&
     Array.isArray(payload.hkxh.tracks) &&
-    payload.hkxh.tracks.length > 0
+    payload.hkxh.tracks.some(hkxhTrackHasDisplayContent)
   );
 }
 

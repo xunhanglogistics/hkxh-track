@@ -1356,14 +1356,16 @@
         /** time + desc 通用时间轴（华唯 / 218 门户等） */
         function renderTimeDescTracks(obj, inputNumber, resDiv) {
             var t2 = I18N[currentLang] || I18N.zh;
-            if (!obj || !Array.isArray(obj.tracks) || obj.tracks.length === 0) {
+            var arr = obj && Array.isArray(obj.tracks) ? obj.tracks.filter(function (row) {
+                return row && ((row.time && String(row.time).trim()) || (row.desc && String(row.desc).trim()));
+            }) : [];
+            if (!arr.length) {
                 resDiv.innerHTML = '<p>' + t2.msg_track_no_result + '</p>';
                 return;
             }
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
             html += '<h4>' + t2.msg_track_trail + '</h4>';
-            var arr = obj.tracks;
             var di;
             for (di = arr.length - 1; di >= 0; di--) {
                 var row = arr[di];
