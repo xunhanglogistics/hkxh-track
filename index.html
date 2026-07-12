@@ -1392,6 +1392,9 @@
         function renderPortal218TrackResponse(obj, inputNumber, resDiv) {
             renderTimeDescTracks(obj, inputNumber, resDiv);
         }
+        function renderHkxhTrackResponse(obj, inputNumber, resDiv) {
+            renderTimeDescTracks(obj, inputNumber, resDiv);
+        }
         /** NextSLS ehub：JSON traces → time / desc */
         function renderNextslsTrackResponse(obj, inputNumber, resDiv) {
             var t2 = I18N[currentLang] || I18N.zh;
@@ -1530,6 +1533,8 @@
                     renderWawayTrackResponse(raw.waway, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'portal218') {
                     renderPortal218TrackResponse(raw.portal218, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'hkxh') {
+                    renderHkxhTrackResponse(raw.hkxh, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'nextsls') {
                     renderNextslsTrackResponse(raw.nextsls, num, resDiv);
                 } else if (isWmsGetTrackPayload(raw)) {
