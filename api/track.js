@@ -136,6 +136,11 @@ const HKXH_OLLOGISTIC_REFERER = 'https://hkxh.ollogistic.com/';
 const HKXH_OLLOGISTIC_BROWSER_UA = WAWAY_BROWSER_UA;
 /** 设为 false 可关闭 auto 链中的 hkxh 查询 */
 const HKXH_OLLOGISTIC_IN_AUTO = true;
+/** auto 并行链中单个渠道的最长等待（毫秒）；超时后该渠道视为失败，避免 ETIMEDOUT 拖慢整次查询 */
+const AUTO_PROVIDER_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.AUTO_PROVIDER_TIMEOUT_MS || 8000) || 8000
+);
 
 let oisTokenCache = { token: '', at: 0 };
 const OIS_TOKEN_TTL_MS = 25 * 60 * 1000;
@@ -1668,10 +1673,24 @@ async function callNextslsTrack(mailNoList) {
 }
 
 /**
- * 多渠并行：速达非有有效轨迹则立即采用；若速达非返回为空/失败，则等其余渠道全部结束，
- * 再按 handlers 顺序取第一个有效轨迹；若仍全无有效，则 fallbackFn（一般为速达非原始展示）。
- * 已发出的 HTTP 无法在 Node 内统一 abort，余下请求仍可能在云函数后台跑完。
+ * 多渠并行：速达非有有效轨迹则立即采用；若速达非为空/失败，则按 handlers 顺序，
+ * 一旦更高顺位渠道均已结束（成功/失败/超时）且当前顺位有效，立即返回，不再等待更慢的低顺位渠道。
  */
+function withAutoProviderTimeout(promise, providerId) {
+  let timer;
+  const timeoutP = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.error(
+        `[api/track] auto race ${providerId}: timeout after ${AUTO_PROVIDER_TIMEOUT_MS}ms`
+      );
+      resolve(null);
+    }, AUTO_PROVIDER_TIMEOUT_MS);
+  });
+  return Promise.race([Promise.resolve(promise), timeoutP]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
   const n = handlers.length;
   const status = new Array(n).fill('pending');
@@ -1691,16 +1710,29 @@ function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
       if (n > 0 && status[0] !== 'done') return;
 
       for (let i = 1; i < n; i += 1) {
-        if (status[i] === 'pending') return;
-      }
-      for (let i = 1; i < n; i += 1) {
-        if (handlers[i].isValid(results[i])) {
+        let priorDone = true;
+        for (let j = 1; j < i; j += 1) {
+          if (status[j] === 'pending') {
+            priorDone = false;
+            break;
+          }
+        }
+        if (!priorDone) continue;
+        if (status[i] === 'done' && handlers[i].isValid(results[i])) {
           resolved = true;
           resolve(handlers[i].format(results[i]));
           return;
         }
       }
+
       if (status.every((s) => s === 'done')) {
+        for (let i = 1; i < n; i += 1) {
+          if (handlers[i].isValid(results[i])) {
+            resolved = true;
+            resolve(handlers[i].format(results[i]));
+            return;
+          }
+        }
         resolved = true;
         resolve(fallbackFn(results));
       }
@@ -1724,6 +1756,17 @@ function raceAutoTrackMergeByPriority(handlers, logPrefix, fallbackFn) {
   });
 }
 
+function autoRaceStart(id, fn) {
+  return () =>
+    withAutoProviderTimeout(
+      Promise.resolve(fn()).catch((err) => {
+        console.error(`[api/track] auto race ${id}:`, err.message || err);
+        return null;
+      }),
+      id
+    );
+}
+
 async function resolveAutoTrack(mailNoList, ctx) {
   const oisEn = oisResolveTranslateEnFromUiLang(ctx && ctx.lang);
 
@@ -1745,14 +1788,19 @@ async function resolveAutoTrack(mailNoList, ctx) {
     },
   ];
 
+  if (HKXH_OLLOGISTIC_IN_AUTO) {
+    handlers.push({
+      id: 'hkxh',
+      start: autoRaceStart('hkxh', () => callHkxhOllogisticTrack(mailNoList)),
+      isValid: (r) => r != null && isHkxhOllogisticUsable(r),
+      format: (r) => r,
+    });
+  }
+
   if (NEXTSLS_IN_AUTO) {
     handlers.push({
       id: 'nextsls',
-      start: () =>
-        callNextslsTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race nextsls:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('nextsls', () => callNextslsTrack(mailNoList)),
       isValid: (r) => r != null && isNextslsUsable(r),
       format: (r) => r,
     });
@@ -1761,11 +1809,7 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (WAWAY_IN_AUTO) {
     handlers.push({
       id: 'waway',
-      start: () =>
-        callWawayTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race waway:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('waway', () => callWawayTrack(mailNoList)),
       isValid: (r) => r != null && isWawayUsable(r),
       format: (r) => r,
     });
@@ -1774,11 +1818,9 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (oisEnvReady()) {
     handlers.push({
       id: 'ois',
-      start: () =>
-        callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn }).catch((err) => {
-          console.error('[api/track] auto race ois:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('ois', () =>
+        callOisQueryTrace(mailNoList, 0, { isTranslateEn: oisEn })
+      ),
       isValid: (r) => r != null && isOisTraceUsable(r),
       format: (r) => ({ __autoProvider: 'ois', ois: r }),
     });
@@ -1787,25 +1829,8 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (PORTAL218_IN_AUTO) {
     handlers.push({
       id: 'portal218',
-      start: () =>
-        callPortal218Track(mailNoList).catch((err) => {
-          console.error('[api/track] auto race portal218:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('portal218', () => callPortal218Track(mailNoList)),
       isValid: (r) => r != null && isPortal218Usable(r),
-      format: (r) => r,
-    });
-  }
-
-  if (HKXH_OLLOGISTIC_IN_AUTO) {
-    handlers.push({
-      id: 'hkxh',
-      start: () =>
-        callHkxhOllogisticTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race hkxh:', err.message || err);
-          return null;
-        }),
-      isValid: (r) => r != null && isHkxhOllogisticUsable(r),
       format: (r) => r,
     });
   }
@@ -1813,11 +1838,7 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (YW56_AUTHORIZATION) {
     handlers.push({
       id: 'yanwen',
-      start: () =>
-        callYanwenTracking(mailNoList).catch((err) => {
-          console.error('[api/track] auto race yanwen:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('yanwen', () => callYanwenTracking(mailNoList)),
       isValid: (r) => r != null && isYanwenHasUsableResult(r),
       format: (r) => ({ __autoProvider: 'yanwen', ...r }),
     });
@@ -1826,11 +1847,7 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (kingtransEnvReady()) {
     handlers.push({
       id: 'kingtrans',
-      start: () =>
-        callKingtransTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race kingtrans:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('kingtrans', () => callKingtransTrack(mailNoList)),
       isValid: (r) => r != null && isKingtransHasUsableResult(r),
       format: (r) => ({ __autoProvider: 'kingtrans', ...r }),
     });
@@ -1839,11 +1856,7 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (sz56tEnvReady()) {
     handlers.push({
       id: 'sz56t',
-      start: () =>
-        callSz56tTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race sz56t:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('sz56t', () => callSz56tTrack(mailNoList)),
       isValid: (r) => r != null && isSz56tHasUsableResult(r),
       format: (r) => ({ __autoProvider: 'sz56t', sz56t: r }),
     });
@@ -1852,11 +1865,7 @@ async function resolveAutoTrack(mailNoList, ctx) {
   if (wmsEnvReady()) {
     handlers.push({
       id: 'wms',
-      start: () =>
-        callWmsGetTrack(mailNoList).catch((err) => {
-          console.error('[api/track] auto race wms:', err.message || err);
-          return null;
-        }),
+      start: autoRaceStart('wms', () => callWmsGetTrack(mailNoList)),
       isValid: (r) => r != null && isWmsGetTrackUsable(r),
       format: (r) => ({ __autoProvider: 'wms', wms: r }),
     });

@@ -1088,12 +1088,11 @@
                 return;
             }
             var item = data[0];
-            var mailNo = item.mailNo || inputNumber;
             var tracks = item.tracks || [];
             var status = tracks.length > 0 ? tracks[0].actionName : t2.msg_track_no_status;
-            var numLabel = currentLang === 'zh' ? '单号：' : 'Tracking: ';
+            var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
             var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
-            var html = '<h3>' + numLabel + mailNo + '</h3><p><strong>' + statusLabel + '</strong>' + displayTrackLine(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
+            var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3><p><strong>' + statusLabel + '</strong>' + displayTrackLine(status) + '</p><h4>' + t2.msg_track_trail + '</h4>';
             if (tracks.length > 0) {
                 tracks.forEach(function (tk) {
                     var desc = tk.message || tk.msgEng || tk.msgLoc || tk.actionName || '';
@@ -1143,11 +1142,9 @@
             var latest = cps.length > 0 ? cps[cps.length - 1] : null;
             var status = latest ? (latest.message || latest.tracking_status || '') : t2.msg_track_no_status;
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
-            var exchLabel = currentLang === 'zh' ? '尾程单号：' : 'Last-mile no.: ';
             var routeLabel = currentLang === 'zh' ? '线路：' : 'Route: ';
             var statusLabel = currentLang === 'zh' ? '最新状态：' : 'Latest status: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            if (item.exchange_number) html += '<p><strong>' + exchLabel + '</strong>' + escapeHtmlTrack(item.exchange_number) + '</p>';
             if (item.origin_country || item.destination_country) {
                 html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(item.origin_country || '—') + ' → ' + escapeHtmlTrack(item.destination_country || '—') + '</p>';
             }
@@ -1193,13 +1190,9 @@
             var tr = row.track || {};
             var items = Array.isArray(row.items) ? row.items.slice() : [];
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
-            var billLabel = currentLang === 'zh' ? '运单号：' : 'Bill: ';
-            var transLabel = currentLang === 'zh' ? '转单号：' : 'Transfer no.: ';
             var routeLabel = currentLang === 'zh' ? '线路：' : 'Route: ';
             var statusLabel = currentLang === 'zh' ? '概要状态：' : 'Summary: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            if (tr.billid) html += '<p><strong>' + billLabel + '</strong>' + escapeHtmlTrack(tr.billid) + '</p>';
-            if (tr.transBillid) html += '<p><strong>' + transLabel + '</strong>' + escapeHtmlTrack(tr.transBillid) + '</p>';
             if (tr.country || tr.destination) {
                 html += '<p><strong>' + routeLabel + '</strong>' + escapeHtmlTrack(tr.country || '—') + ' · ' + escapeHtmlTrack(tr.destination || '—') + '</p>';
             }
@@ -1239,14 +1232,10 @@
                 details = row.childrenTrackDetails.slice();
             }
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
-            var refLabel = currentLang === 'zh' ? '参考号：' : 'Ref: ';
-            var tkLabel = currentLang === 'zh' ? '跟踪号：' : 'Tracking no.: ';
             var prodLabel = currentLang === 'zh' ? '物流方式：' : 'Product: ';
             var countryLabel = currentLang === 'zh' ? '目的国：' : 'Country: ';
             var statusLabel = currentLang === 'zh' ? '最新轨迹：' : 'Latest: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            if (row.referenceNumber) html += '<p><strong>' + refLabel + '</strong>' + escapeHtmlTrack(row.referenceNumber) + '</p>';
-            if (row.trackingNumber) html += '<p><strong>' + tkLabel + '</strong>' + escapeHtmlTrack(row.trackingNumber) + '</p>';
             if (row.productKindName) html += '<p><strong>' + prodLabel + '</strong>' + escapeHtmlTrack(row.productKindName) + '</p>';
             if (row.consigneeCountry) html += '<p><strong>' + countryLabel + '</strong>' + escapeHtmlTrack(row.consigneeCountry) + '</p>';
             html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine((row.trackContent || '') + (row.trackDate ? ' · ' + row.trackDate : '')) + '</p><h4>' + t2.msg_track_trail + '</h4>';
@@ -1285,11 +1274,9 @@
             var block = obj.data[0];
             var details = Array.isArray(block.details) ? block.details.slice() : [];
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
-            var hawbLabel = currentLang === 'zh' ? '服务商单号：' : 'Shipment no.: ';
             var destLabel = currentLang === 'zh' ? '目的国：' : 'Destination: ';
             var statusLabel = currentLang === 'zh' ? '状态：' : 'Status: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            if (block.server_hawbcode) html += '<p><strong>' + hawbLabel + '</strong>' + escapeHtmlTrack(block.server_hawbcode) + '</p>';
             if (block.destination_country) html += '<p><strong>' + destLabel + '</strong>' + escapeHtmlTrack(block.destination_country) + '</p>';
             if (block.track_status_name) {
                 html += '<p><strong>' + statusLabel + '</strong>' + displayTrackLine(block.track_status_name + (block.signatory_name ? (' · ' + block.signatory_name) : '')) + '</p>';
@@ -1404,14 +1391,6 @@
             }
             var numLabel = currentLang === 'zh' ? '查询单号：' : 'Tracking: ';
             var html = '<h3>' + numLabel + escapeHtmlTrack(inputNumber) + '</h3>';
-            var refTrim = obj.refNo != null ? String(obj.refNo).trim() : '';
-            var inputTrim = String(inputNumber || '').trim();
-            if (refTrim && refTrim !== inputTrim) {
-                html += '<p><strong>' + (currentLang === 'zh' ? '客户参考号：' : 'Ref: ') + '</strong>' + escapeHtmlTrack(refTrim) + '</p>';
-            }
-            if (obj.shipmentId) {
-                html += '<p><strong>' + (currentLang === 'zh' ? '承运单号：' : 'Shipment ID: ') + '</strong>' + escapeHtmlTrack(obj.shipmentId) + '</p>';
-            }
             var sumParts = [];
             if (obj.status) sumParts.push(obj.status);
             if (obj.country) sumParts.push(obj.country);
