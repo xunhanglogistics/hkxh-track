@@ -7,7 +7,7 @@
  *
  * 环境变量:
  *   YW56_AUTHORIZATION — 燕文轨迹 Authorization
- *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（接口仅支持 POST，地址栏 GET 会 405）
+ *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（风航 K5，接口仅支持 POST）
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
  *   SZ56T_API_BASE — 华磊/sz56t 的 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
  *       （依赖 iconv-lite：响应体多为 GB18030/GBK，代理内自动择码再 JSON.parse，避免中文乱码）
@@ -309,6 +309,53 @@ function httpsPostToIp(urlString, plainBody, targetIp) {
     req.write(bodyBuf);
     req.end();
   });
+}
+
+function httpsPostJsonToIp(urlString, bodyObj, targetIp, extraHeaders) {
+  const u = new URL(urlString);
+  const bodyBuf = Buffer.from(JSON.stringify(bodyObj), 'utf8');
+  return new Promise((resolve, reject) => {
+    const opts = {
+      host: targetIp,
+      port: 443,
+      path: `${u.pathname}${u.search}`,
+      method: 'POST',
+      servername: u.hostname,
+      headers: {
+        Host: u.hostname,
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Content-Length': String(bodyBuf.length),
+        Accept: 'application/json',
+        ...(extraHeaders || {}),
+      },
+    };
+    const req = https.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
+async function httpPostJsonPreferResolvedIp(urlString, bodyObj, extraHeaders) {
+  const u = new URL(urlString);
+  if (u.protocol === 'https:') {
+    try {
+      const address = await resolveHostToIPv4(u.hostname);
+      return await httpsPostJsonToIp(urlString, bodyObj, address, extraHeaders);
+    } catch (err) {
+      console.error('[api/track] https JSON via resolved IP failed, fallback:', err.message || err);
+    }
+  }
+  return httpPostJson(urlString, bodyObj, extraHeaders);
 }
 
 function httpsGetToIp(urlString, targetIp, headers) {
@@ -703,7 +750,7 @@ async function callKingtransTrack(mailNoList) {
     Verify: { Clientid: KINGTRANS_CLIENT_ID, Token: KINGTRANS_TOKEN },
     Datas,
   };
-  const { status, text } = await httpPostJson(url, payload);
+  const { status, text } = await httpPostJsonPreferResolvedIp(url, payload);
   let raw;
   try {
     raw = text ? JSON.parse(text) : {};
@@ -1339,6 +1386,9 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
   const tracks = [];
   let orderNum = fallbackOrderNum;
   let hasDetails = false;
+  let waybillCode = '';
+  let tranBillCode = '';
+  let preBillCode = '';
 
   if (raw.data && Array.isArray(raw.data)) {
     const waybill = hkxhPickWaybillRow(raw.data, fallbackOrderNum);
@@ -1349,6 +1399,12 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
     else if (waybill.TranBillCode != null) orderNum = String(waybill.TranBillCode);
     else if (waybill.waybillCode != null) orderNum = String(waybill.waybillCode);
     else if (waybill.WaybillCode != null) orderNum = String(waybill.WaybillCode);
+    if (waybill.waybillCode != null) waybillCode = String(waybill.waybillCode);
+    else if (waybill.WaybillCode != null) waybillCode = String(waybill.WaybillCode);
+    if (waybill.tranBillCode != null) tranBillCode = String(waybill.tranBillCode);
+    else if (waybill.TranBillCode != null) tranBillCode = String(waybill.TranBillCode);
+    if (waybill.preBillCode != null) preBillCode = String(waybill.preBillCode);
+    else if (waybill.PreBillCode != null) preBillCode = String(waybill.PreBillCode);
 
     const details = waybill.details || waybill.Details;
     if (Array.isArray(details) && details.length > 0) {
@@ -1388,7 +1444,7 @@ function hkxhFromParsedJson(raw, fallbackOrderNum) {
 
   return {
     __autoProvider: 'hkxh',
-    hkxh: { orderNum, tracks, hasDetails },
+    hkxh: { orderNum, tracks, hasDetails, waybillCode, tranBillCode, preBillCode },
   };
 }
 
@@ -1448,6 +1504,21 @@ function pickHkxhSummaryFallback(results, handlers) {
     return handlers[i].format(r);
   }
   return null;
+}
+
+function hkxhCollectAlternateTrackNumbers(hkxhPayload, mailNoList) {
+  const out = new Set();
+  (mailNoList || []).forEach((s) => {
+    const t = String(s).trim();
+    if (t) out.add(t);
+  });
+  const h = hkxhPayload && hkxhPayload.hkxh;
+  if (!h) return [...out].slice(0, 30);
+  [h.waybillCode, h.tranBillCode, h.preBillCode, h.orderNum].forEach((v) => {
+    const t = v != null ? String(v).trim() : '';
+    if (t) out.add(t);
+  });
+  return [...out].slice(0, 30);
 }
 
 /** 海凯讯航自有平台轨迹查询 */
@@ -1871,6 +1942,15 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
+  if (kingtransEnvReady()) {
+    handlers.push({
+      id: 'kingtrans',
+      start: autoRaceStart('kingtrans', () => callKingtransTrack(mailNoList)),
+      isValid: (r) => r != null && isKingtransHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'kingtrans', ...r }),
+    });
+  }
+
   if (NEXTSLS_IN_AUTO) {
     handlers.push({
       id: 'nextsls',
@@ -1918,15 +1998,6 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
-  if (kingtransEnvReady()) {
-    handlers.push({
-      id: 'kingtrans',
-      start: autoRaceStart('kingtrans', () => callKingtransTrack(mailNoList)),
-      isValid: (r) => r != null && isKingtransHasUsableResult(r),
-      format: (r) => ({ __autoProvider: 'kingtrans', ...r }),
-    });
-  }
-
   if (sz56tEnvReady()) {
     handlers.push({
       id: 'sz56t',
@@ -1945,12 +2016,33 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
-  return raceAutoTrackMergeByPriority(handlers, '[api/track] auto race', (results) => {
+  let result = await raceAutoTrackMergeByPriority(handlers, '[api/track] auto race', (results) => {
     const hkxhFallback = pickHkxhSummaryFallback(results, handlers);
     if (hkxhFallback) return hkxhFallback;
     const s = results[0];
     return s != null ? s : { success: false };
   });
+
+  if (
+    kingtransEnvReady() &&
+    result &&
+    result.__autoProvider === 'hkxh' &&
+    !isHkxhOllogisticUsable(result)
+  ) {
+    const altNums = hkxhCollectAlternateTrackNumbers(result, mailNoList);
+    if (altNums.length) {
+      try {
+        const kt = await withAutoProviderTimeout(callKingtransTrack(altNums), 'kingtrans-alt');
+        if (kt && isKingtransHasUsableResult(kt)) {
+          return { __autoProvider: 'kingtrans', ...kt };
+        }
+      } catch (err) {
+        console.error('[api/track] kingtrans alt numbers:', err.message || err);
+      }
+    }
+  }
+
+  return result;
 }
 
 async function callYanwenTracking(mailNoList) {
