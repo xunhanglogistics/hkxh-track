@@ -1212,7 +1212,7 @@
             }
             resDiv.innerHTML = html;
         }
-        /** 华磊/sz56t：顶层可为 [{ ack, data }] 或对象 { data }（代理会规范成前者）；轨迹见 trackDetails / childrenTrackDetails */
+        /** 华磊/利信达、速达顺通（同协议）：顶层可为 [{ ack, data }]；仅展示用户输入的原单号，不展示转单号 */
         function renderSz56tResponse(arr, inputNumber, resDiv) {
             var t2 = I18N[currentLang] || I18N.zh;
             var list = Array.isArray(arr) ? arr : [];
@@ -1506,6 +1506,8 @@
                     renderKingtransResponse(ktRaw, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'sz56t') {
                     renderSz56tResponse(raw.sz56t, num, resDiv);
+                } else if (raw && raw.__autoProvider === 'sdst') {
+                    renderSz56tResponse(raw.sdst, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'wms') {
                     renderWmsTrackResponse(raw.wms, num, resDiv);
                 } else if (raw && raw.__autoProvider === 'ois') {

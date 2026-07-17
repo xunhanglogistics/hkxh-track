@@ -9,8 +9,8 @@
  *   YW56_AUTHORIZATION — 燕文轨迹 Authorization
  *   KINGTRANS_API_BASE — 可选覆盖；默认 https://fhex.kingtrans.cn（风航 K5，接口仅支持 POST）
  *   KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN — K5 客户编码与秘钥（勿暴露到前端）
- *   SZ56T_API_BASE — 华磊/sz56t 的 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
- *       （依赖 iconv-lite：响应体多为 GB18030/GBK，代理内自动择码再 JSON.parse，避免中文乱码）
+ *   SZ56T_API_BASE — 华磊/利信达 URL1 根地址；轨迹为 POST .../selectTrack.htm?documentCode=
+ *   速达顺通：默认 http://134.175.223.12:8082，同协议；可选 SDST_API_BASE 覆盖；auto 由常量 SDST_IN_AUTO 控制
  *   WMS_SERVICE_URL — WMS「获取订单跟踪记录」完整 POST 地址（…/PublicService.asmx/ServiceInterfaceUTF8）
  *   WMS_APP_TOKEN、WMS_APP_KEY — 货代 API 账号与密码（见文档 gettrack）
  *     文档：http://183.56.242.72:6007/usercenter/manager/api_document.aspx#gettrack
@@ -72,8 +72,17 @@ const KINGTRANS_API_BASE = (
 const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
 
-/** 华磊物流通 URL1（轨迹等），当前：http://hx.hailei2018.com:8082；仍以环境变量 SZ56T_API_BASE 为准 */
+/** 华磊/利信达 URL1（轨迹等），当前：http://hx.hailei2018.com:8082；仍以环境变量 SZ56T_API_BASE 为准 */
 const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
+
+/** 速达顺通：与利信达同为华磊 selectTrack；页面 trackIndex.htm，接口 POST …/selectTrack.htm?documentCode= */
+const SDST_API_BASE = (
+  process.env.SDST_API_BASE || 'http://134.175.223.12:8082'
+)
+  .trim()
+  .replace(/\/$/, '');
+/** 设为 false 可关闭 auto 中的速达顺通 */
+const SDST_IN_AUTO = true;
 
 const WMS_SERVICE_URL = (process.env.WMS_SERVICE_URL || '').trim();
 const WMS_APP_TOKEN = (process.env.WMS_APP_TOKEN || '').trim();
@@ -693,6 +702,10 @@ function sz56tEnvReady() {
   return !!SZ56T_API_BASE;
 }
 
+function sdstEnvReady() {
+  return !!SDST_API_BASE;
+}
+
 /** 接口可能返回顶层 [{ ack, data }]，也可能返回 { data: [...] }（无 ack） */
 function normalizeSz56tResponse(raw) {
   if (raw == null) return raw;
@@ -765,31 +778,45 @@ async function callKingtransTrack(mailNoList) {
   return raw;
 }
 
-async function callSz56tTrack(mailNoList) {
-  if (!sz56tEnvReady()) {
-    throw new Error(
-      '华磊/sz56t 轨迹未配置：请在环境中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
-    );
-  }
+async function callSz56tStyleSelectTrack(apiBase, mailNoList, label) {
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
-  const url = `${SZ56T_API_BASE}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
+  const url = `${apiBase}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
   const { status, buffer } = await httpPostEmpty(url);
   const text = decodeSz56tJsonBuffer(buffer);
   let raw;
   try {
     raw = text ? JSON.parse(text) : [];
   } catch (_) {
-    throw new Error(`sz56t non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
+    throw new Error(`${label} non-JSON (HTTP ${status}): ${text.slice(0, 200)}`);
   }
   if (status < 200 || status >= 300) {
-    throw new Error(`sz56t HTTP ${status}: ${text.slice(0, 200)}`);
+    throw new Error(`${label} HTTP ${status}: ${text.slice(0, 200)}`);
   }
   raw = normalizeSz56tResponse(raw);
   if (!Array.isArray(raw)) {
-    throw new Error('sz56t: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）');
+    throw new Error(`${label}: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）`);
   }
   return raw;
+}
+
+async function callSz56tTrack(mailNoList) {
+  if (!sz56tEnvReady()) {
+    throw new Error(
+      '华磊/sz56t 轨迹未配置：请在环境中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
+    );
+  }
+  return callSz56tStyleSelectTrack(SZ56T_API_BASE, mailNoList, 'sz56t');
+}
+
+/** 速达顺通：与利信达相同 POST selectTrack.htm?documentCode= */
+async function callSdstTrack(mailNoList) {
+  if (!sdstEnvReady()) {
+    throw new Error(
+      '速达顺通轨迹未配置：请设置 SDST_API_BASE（默认 http://134.175.223.12:8082）'
+    );
+  }
+  return callSz56tStyleSelectTrack(SDST_API_BASE, mailNoList, 'sdst');
 }
 
 function wmsEnvReady() {
@@ -2007,6 +2034,16 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
+  /* 速达顺通：与利信达同优先级段（紧随其后） */
+  if (SDST_IN_AUTO && sdstEnvReady()) {
+    handlers.push({
+      id: 'sdst',
+      start: autoRaceStart('sdst', () => callSdstTrack(mailNoList)),
+      isValid: (r) => r != null && isSz56tHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'sdst', sdst: r }),
+    });
+  }
+
   if (wmsEnvReady()) {
     handlers.push({
       id: 'wms',
@@ -2130,7 +2167,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.status(200).json({
       ok: true,
-      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218 + HKXH + NextSLS proxy',
+      service: 'hkxh-track / Speedaf + Yanwen + Kingtrans + sz56t + sdst + WMS + OIS + Waway + portal218 + HKXH + NextSLS proxy',
       note:
         '地址栏访问为 GET，本接口只接受 POST。请在官网页面输入单号点击查询；或用 curl/Postman POST JSON。',
       noteEn:
@@ -2150,6 +2187,11 @@ module.exports = async (req, res) => {
           provider: 'sz56t',
           trackingNumber: 'YOUR_NO',
           env: 'SZ56T_API_BASE required',
+        },
+        bodySdst: {
+          provider: 'sdst',
+          trackingNumber: 'YOUR_NO',
+          note: '速达顺通 http://134.175.223.12:8082/selectTrack.htm（与利信达同协议）',
         },
         bodyWms: {
           provider: 'wms',
@@ -2220,6 +2262,8 @@ module.exports = async (req, res) => {
       data = await callKingtransTrack(mailNoList);
     } else if (provider === 'sz56t' || provider === 'hualei') {
       data = await callSz56tTrack(mailNoList);
+    } else if (provider === 'sdst' || provider === 'sudashuntong') {
+      data = await callSdstTrack(mailNoList);
     } else if (provider === 'wms' || provider === 'gettrack') {
       data = await callWmsGetTrack(mailNoList);
     } else if (provider === 'ois' || provider === 'yha' || provider === 'yuehang') {

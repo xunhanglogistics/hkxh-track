@@ -8,7 +8,8 @@
  * SPEEDAF_APP_CODE, SPEEDAF_SECRET_KEY（速达非）
  * YW56_AUTHORIZATION（燕文）
  * KINGTRANS_API_BASE、KINGTRANS_CLIENT_ID、KINGTRANS_TOKEN（K5 searchTrack）
- * SZ56T_API_BASE（华磊/sz56t URL1 根；POST …/selectTrack.htm?documentCode=）
+ * SZ56T_API_BASE（华磊/利信达 URL1 根；POST …/selectTrack.htm?documentCode=）
+ * 速达顺通默认 http://134.175.223.12:8082（同协议）；可选 SDST_API_BASE
  * WMS_SERVICE_URL、WMS_APP_TOKEN、WMS_APP_KEY（POST form gettrack，见货代 API 文档）
  * OIS_PROJECT_URL、OIS_APP_KEY、OIS_APP_SECRET、OIS_COMPANY_NO（越航轨迹 queryTraceoutList）
  * 华唯轨迹 URL 及 218.244 门户已写死在代码中，无需环境变量
@@ -35,6 +36,14 @@ const KINGTRANS_CLIENT_ID = (process.env.KINGTRANS_CLIENT_ID || '').trim();
 const KINGTRANS_TOKEN = (process.env.KINGTRANS_TOKEN || '').trim();
 
 const SZ56T_API_BASE = (process.env.SZ56T_API_BASE || '').trim().replace(/\/$/, '');
+
+/** 速达顺通：与利信达同协议 POST selectTrack.htm */
+const SDST_API_BASE = (
+  process.env.SDST_API_BASE || 'http://134.175.223.12:8082'
+)
+  .trim()
+  .replace(/\/$/, '');
+const SDST_IN_AUTO = true;
 
 const WMS_SERVICE_URL = (process.env.WMS_SERVICE_URL || '').trim();
 const WMS_APP_TOKEN = (process.env.WMS_APP_TOKEN || '').trim();
@@ -168,6 +177,10 @@ function sz56tEnvReady() {
   return !!SZ56T_API_BASE;
 }
 
+function sdstEnvReady() {
+  return !!SDST_API_BASE;
+}
+
 function normalizeSz56tResponse(raw) {
   if (raw == null) return raw;
   if (Array.isArray(raw)) return raw;
@@ -293,16 +306,11 @@ function decodeSz56tJsonBuffer(buf) {
   return utf8;
 }
 
-/** 华磊 selectTrack.htm：POST，documentCode 在 query；空 body */
-async function callSz56tTrack(mailNoList) {
-  if (!sz56tEnvReady()) {
-    throw new Error(
-      '华磊/sz56t 轨迹未配置：请在 SCF 环境变量中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
-    );
-  }
+/** 华磊/利信达/速达顺通：POST selectTrack.htm，documentCode 在 query；空 body */
+async function callSz56tStyleSelectTrack(apiBase, mailNoList, label) {
   const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
   if (!code) throw new Error('Empty tracking number');
-  const url = `${SZ56T_API_BASE}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
+  const url = `${apiBase}/selectTrack.htm?documentCode=${encodeURIComponent(code)}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { Accept: '*/*' },
@@ -313,16 +321,34 @@ async function callSz56tTrack(mailNoList) {
   try {
     raw = text ? JSON.parse(text) : [];
   } catch (_) {
-    throw new Error(`sz56t non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`${label} non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
   }
   if (!res.ok) {
-    throw new Error(`sz56t HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`${label} HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
   raw = normalizeSz56tResponse(raw);
   if (!Array.isArray(raw)) {
-    throw new Error('sz56t: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）');
+    throw new Error(`${label}: 无法解析为轨迹数组（需顶层数组或含 data 数组的对象）`);
   }
   return raw;
+}
+
+async function callSz56tTrack(mailNoList) {
+  if (!sz56tEnvReady()) {
+    throw new Error(
+      '华磊/sz56t 轨迹未配置：请在 SCF 环境变量中设置 SZ56T_API_BASE（文档 URL1 根地址，无末尾斜杠）'
+    );
+  }
+  return callSz56tStyleSelectTrack(SZ56T_API_BASE, mailNoList, 'sz56t');
+}
+
+async function callSdstTrack(mailNoList) {
+  if (!sdstEnvReady()) {
+    throw new Error(
+      '速达顺通轨迹未配置：请设置 SDST_API_BASE（默认 http://134.175.223.12:8082）'
+    );
+  }
+  return callSz56tStyleSelectTrack(SDST_API_BASE, mailNoList, 'sdst');
 }
 
 function wmsEnvReady() {
@@ -1156,6 +1182,19 @@ async function resolveAutoTrack(mailNoList, ctx) {
     });
   }
 
+  if (SDST_IN_AUTO && sdstEnvReady()) {
+    handlers.push({
+      id: 'sdst',
+      start: () =>
+        callSdstTrack(mailNoList).catch((err) => {
+          console.error('[scf/track] auto race sdst:', err.message || err);
+          return null;
+        }),
+      isValid: (r) => r != null && isSz56tHasUsableResult(r),
+      format: (r) => ({ __autoProvider: 'sdst', sdst: r }),
+    });
+  }
+
   if (wmsEnvReady()) {
     handlers.push({
       id: 'wms',
@@ -1283,7 +1322,7 @@ exports.main_handler = async (event) => {
   if (method === 'GET' || method === 'HEAD') {
     return jsonResponse(200, {
       ok: true,
-      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t + WMS + OIS + Waway + portal218',
+      service: 'hkxh-track / Tencent SCF → Speedaf + Yanwen + Kingtrans + sz56t + sdst + WMS + OIS + Waway + portal218',
       note: 'POST：auto 可接 WMS / OIS / 华唯 / 218 门户（URL 已写死在代码）',
     });
   }
@@ -1322,6 +1361,8 @@ exports.main_handler = async (event) => {
       data = await callKingtransTrack(mailNoList);
     } else if (provider === 'sz56t' || provider === 'hualei') {
       data = await callSz56tTrack(mailNoList);
+    } else if (provider === 'sdst' || provider === 'sudashuntong') {
+      data = await callSdstTrack(mailNoList);
     } else if (provider === 'wms' || provider === 'gettrack') {
       data = await callWmsGetTrack(mailNoList);
     } else if (provider === 'ois' || provider === 'yha' || provider === 'yuehang') {
