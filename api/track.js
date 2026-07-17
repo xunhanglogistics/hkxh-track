@@ -809,14 +809,103 @@ async function callSz56tTrack(mailNoList) {
   return callSz56tStyleSelectTrack(SZ56T_API_BASE, mailNoList, 'sz56t');
 }
 
-/** 速达顺通：与利信达相同 POST selectTrack.htm?documentCode= */
+/** 速达顺通：与利信达相同 POST selectTrack.htm?documentCode=；
+ * 部分单号 selectTrack 无数据但 trackIndex.htm 页面有轨迹，需 HTML 回退。 */
+function stripSdstHtmlText(s) {
+  return String(s || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 解析速达顺通 trackIndex.htm 服务端渲染页，输出与利信达相同的 [{ack,data}] 结构 */
+function parseSdstTrackIndexHtml(html) {
+  if (!html || typeof html !== 'string') return null;
+  if (!/运单信息|追踪信息|追踪记录/.test(html)) return null;
+
+  const details = [];
+  const trRe =
+    /<tr[^>]*>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<\/tr>/gi;
+  let m;
+  while ((m = trRe.exec(html))) {
+    const track_date = stripSdstHtmlText(m[1]);
+    const track_location = stripSdstHtmlText(m[2]);
+    const track_content = stripSdstHtmlText(m[3]);
+    if (!track_date && !track_content) continue;
+    if (track_date === '日期' || track_content === '追踪记录') continue;
+    details.push({ track_date, track_location, track_content });
+  }
+
+  let country = '';
+  let trackDate = '';
+  let trackContent = '';
+  const statusMatch = html.match(
+    /<li class="div_li1"[^>]*>([\s\S]*?)<\/li>\s*<li class="div_li2"[^>]*>([\s\S]*?)<\/li>\s*<li class="div_li4"[^>]*>([\s\S]*?)<\/li>/i
+  );
+  if (statusMatch) {
+    country = stripSdstHtmlText(statusMatch[1]);
+    trackDate = stripSdstHtmlText(statusMatch[2]);
+    trackContent = stripSdstHtmlText(statusMatch[3]).replace(/\/\s*$/, '').trim();
+  }
+
+  if (details.length === 0 && !trackContent) return null;
+  if (details.length === 0 && trackContent) {
+    details.push({
+      track_date: trackDate,
+      track_location: '',
+      track_content: trackContent,
+    });
+  }
+
+  return [
+    {
+      ack: 'true',
+      data: [
+        {
+          consigneeCountry: country,
+          trackContent: trackContent || (details[0] && details[0].track_content) || '',
+          trackDate: trackDate || (details[0] && details[0].track_date) || '',
+          trackDetails: details,
+        },
+      ],
+    },
+  ];
+}
+
 async function callSdstTrack(mailNoList) {
   if (!sdstEnvReady()) {
     throw new Error(
       '速达顺通轨迹未配置：请设置 SDST_API_BASE（默认 http://134.175.223.12:8082）'
     );
   }
-  return callSz56tStyleSelectTrack(SDST_API_BASE, mailNoList, 'sdst');
+  const code = mailNoList.map((s) => String(s).trim()).filter(Boolean)[0];
+  if (!code) throw new Error('Empty tracking number');
+
+  let raw = null;
+  try {
+    raw = await callSz56tStyleSelectTrack(SDST_API_BASE, [code], 'sdst');
+  } catch (err) {
+    console.error('[api/track] sdst selectTrack:', err.message || err);
+    raw = null;
+  }
+  if (isSz56tHasUsableResult(raw)) return raw;
+
+  const pageUrl = `${SDST_API_BASE}/trackIndex.htm?documentCode=${encodeURIComponent(code)}`;
+  const { status, text } = await httpOrHttpsGetText(pageUrl, {
+    Accept: 'text/html,application/xhtml+xml,*/*',
+    'User-Agent': WAWAY_BROWSER_UA,
+  });
+  if (status < 200 || status >= 300) {
+    throw new Error(`sdst trackIndex HTTP ${status}: ${(text || '').slice(0, 200)}`);
+  }
+  const parsed = parseSdstTrackIndexHtml(text);
+  if (parsed) return parsed;
+  return raw != null ? raw : [{ ack: 'false', message: '未查询到轨迹' }];
 }
 
 function wmsEnvReady() {
